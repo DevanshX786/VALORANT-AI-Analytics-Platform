@@ -1,0 +1,187 @@
+The dataset includes matches, agents, and player data from VCT 2021–2025. This was obtained via data scraping at vlr.gg. Each year contains three folders: agents, matches, player stats, and IDs.
+
+The agents folder contains agent pick rates, map pick rates, attacker and defender side win/loss percentage, team pick rates on an agent, and win/loss rate.
+
+The matches folder contains team picks and bans, their economy on each round of a match, their economy stats on a match, players kills performance on other players, players kill stats, maps that were played on a match, the scores from the map, players overview stats, a player kills performance on players and their agent on a specific round, matches scores and their results, a list of abbreviated team names with their full names, the count of the method that occurred for a team for a match they played and its round number.
+
+The player stats folder only contains player stats.
+
+The ids folder contains the ids for the teams, players, tournaments, stages, match types, matches, and games.
+
+The all_ids folder contains all the IDs, and the abbreviated team name with their full name.
+
+Notes
+
+Starting Masters Toronto (VCT 2025), the loadout value in eco_rounds.csv will be missing.
+
+A lot of stats from matches played in China are missing. From what I read online, the Chinese hosted events do not have APIs available for post game stats.
+
+There is a player named “nan”. If you are interested in their data, please make sure to not have the code read their name as null.
+
+There is a team named "TBD". This is not a real team. Either the players were not on a team or their team name was missing at the time the match was played.
+
+There are two teams with the same name but different IDs: Exotic (4964, year 2021) and Exotic (1301, year 2022).
+
+The ID for match types can be null because an ID was not found for it during the scraping. The ID for stages and match types are null if it referring to all the stages and all the match types for a tournament.
+
+The column "Initiated" can contain null values because it is not possible to initialize a pistol round.
+
+The columns "Player", "Enemy", "Player Kills", "Enemy Kills", and "Difference" can contain null values because the name was missing or the player never got first kills and/or never got kills using the Operator and vice versa.
+
+The columns "2k", "3k", "4k", "5k", "1v1", "1v2", "1v3", "1v4", and "1v5" can contain null values because
+the player never got a multi-kill elimination or never won in a multi-players match up.
+
+The columns "Team A Overtime Score", "Team B Overtime Score" and "Duration" can contain null values because the match never reached to overtime or the duration was not recorded on the website.
+
+All the columns related to the stats can contain null values because the stats were missing or the player did not encounter situations in a match conductive to recording those specific stats.
+
+The columns "Eliminator", "Eliminated", and "Eliminated Team" can contain null values because the name were missing.
+
+There are two teams with the same abbreviation of TP: Typhoon and Typhone.
+
+Understanding the Data
+
+Tournament ID - The ID for the tournament
+
+Stage ID - The ID for the stage
+
+Match Type ID - The ID for the match type
+
+Match ID - The ID for the match
+
+Game ID - The ID for the map that was played from the match
+
+Pick Rate - How many times an agent has been picked
+
+Total Maps Played - How many times a map has been played
+
+Attacker Side Win Percentage - The percentage of rounds won by the attacking side on that map
+
+Defender Side Win Percentage - The percentage of rounds won by the defending side of that map
+
+Total Wins By Map - How many times the team won with the given agent on that map
+
+Total Loss By Map - How many times the team lost with the given agent on that map
+
+Total Maps Played - The total amount the team played on that map
+
+Loadout Value - The total value of all the weapons, abilities, and shields purchased by all players on the team in a round
+
+Remaining Credits - How much credits a team has after spending
+
+Type - The economy round type (eco, semi-eco, semi-buy, full buy)
+
+Pistol Round - Team won the pistol round
+
+Eco (won) - Team spent 0-5k credits to win a round
+
+$ (Semi-eco) - Team spent 5-10k credits to win a round
+
+$$ (Semi-buy) - Team spent 10-20k credits to win a round
+
+$$$ (Full buy) - Team spent over 20k credits to win a round
+
+Initiated - How many times the team engage a specific economy round (eco, semi-eco, semi-buy, full buy)
+
+Won - How many times the team won a specific economy round (eco, semi-eco, semi-buy, full buy)
+
+Eliminator Team - The team the eliminator is on
+
+Eliminator - The player who eliminated
+
+Eliminator Agent - The agent the eliminator played
+
+Eliminated Team - The team the eliminated is on
+
+Eliminated - The player who got eliminated
+
+Eliminated Agent - The agent the eliminated played
+
+Kills - How many times a player eliminated the specific player on their agent
+
+2k - How many times the player achieved two eliminations
+
+3k - How many times the player achieved three eliminations in a single round
+
+4k - How many times the player achieved four eliminations in a single round
+
+5k - How many times the player achieved five eliminations in a single round
+
+1v1 - How many times the played won against one player from the enemy team when both are the sole players left in a single round
+
+1v2 - How many times the player won against two players from the enemy team when the player is the sole player left on their team in a single round
+
+1v3 - How many times the player won against three players from the enemy team when the player is the sole player left on their team in a single round
+
+1v4 - How many times the player won against four players from the enemy team when the player is the sole player left on their team in a single round
+
+Econ - The economy rating of a player (damage dealt per 1000 credits spent)
+
+Spike Plants - How many times a player planted the spike
+
+Spike Defuse - How many times a player defused the spike
+
+Team Score - The overall score the team accumulated in a match
+
+Team Attacker Score - The score the team accumulated on attacker side in a match
+
+Team Defender Score - The score the team accumulated on defender side in a match
+
+Team Overtime Score - The score the team accumulated during overtime in a match
+
+Duration - How long the match was in hours, minutes, seconds
+
+Rating (R) - Rating the player's performance taking account all the stats available in a match
+(https://www.vlr.gg/160667/vlr-gg-player-rating-explained)
+
+Average Combat Score (ACS) - The average combat score over the whole match for the player calculated based on damage, kills, multi-kills and non-damaging assists
+
+Kills - The number of elimination in a match
+
+Deaths - The number of deaths in a a match
+
+Assists - The number of assists in a match
+
+Kills - Deaths (FD) / Kills:Deaths - The kills-to-deaths differential
+
+Kill, Assist, Survive, Trade % (KAST) - % of rounds the player either got a kill, assist, traded a kill or survived
+
+Average Damage Per Round (ADR) - The average damage the player achieved per round
+
+Kills Per Round (KPR) - The average kills the player achieved per round
+
+Assists Per Round (APR) - The average assists the player achieved per round
+
+First Kills Per Round (FKPR) - The average first kills the player achieved per round
+
+First Deaths Per Round (FDPR) - The average first deaths the player achieved per round
+
+Headshot % - % of bullets that were headshots
+
+Clutch Success % - % of clutches the player were able to clutch
+
+Clutches (won/played) - The ratio of won-to-played clutches
+
+Maximum Kills in a Single Map - The maximum elimination the player achieved in a single map
+
+First Kills - How many first elimination the player achieved
+
+First Deaths - How many first deaths the player achieved
+
+Kills - Deaths (FKD) - The first kills-to-deaths differential
+
+Elimination - The amount of times a team has won by eliminating the enemy team
+
+Detonated - The amount of times a team has won by planting the spike and the spike does not get defused by the enemy team
+
+Defuse - The amount of times the team has won by defusing the spike
+
+Time Expiry (No Plant) - The amount of times the team has won when the opposing team does not plant in time
+
+Eliminated - The amount of times the team has lost because they got eliminated
+
+Defuse Failed - The amount of times the team has has lost because they failed to defuse the spike
+
+Detonation Denied - The amount of times the team has lost because the opposing team defused the spike
+
+Time Expiry (Failed to Plant) - The amount of times the team has lost because they failed to plant the spike in time

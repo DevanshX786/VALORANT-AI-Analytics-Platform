@@ -1,0 +1,280 @@
+================================================================================
+VALORANT AI ANALYTICS PLATFORM - WORK LOG
+================================================================================
+
+PHASE 1: Data Ingestion & Baselining
+
+[1] ENVIRONMENT SETUP
+- Scaffolded project structure (data/raw, src, notebooks, models, frontend, backend).
+- Created `requirements.txt` with core tools (pandas==3.0.1, numpy, xgboost, scikit-learn, jupyter).
+- Migrated Kaggle data into `data/raw/`.
+- Deployed a fresh Python Virtual Environment (`venv`) to gracefully isolate dependencies and deleted the older misconfigured `.venv`.
+
+[2] EXPLORATORY ANALYSIS (notebooks/01_data_exploration.py)
+- Thoroughly documented data anomalies into `dataset.txt`.
+- Bypassed the infamous "nan" string parser bug that breaks player name ingestion by strictly configuring pandas with `keep_default_na=False`.
+- Diagnosed precisely 8,060 empty rows associated with 92 missing Chinese VCT matches. Confirmed the best strategy is to drop them rather than corrupting player stats via mean-imputation.
+
+[3] CORE DATA PIPELINE (src/data/)
+- Created `loader.py`: Universal ingestor that automatically stitches matching `overview.csv` and `scores.csv` shards across the "vct_2021" to "vct_2025" era.
+- Created `cleaner.py`: Formatted null tactical events (2k, 1v1, First Kills) to 0. Auto-filters out broken matches and "TBD" teams.
+- Created `resolver.py`: Blueprint for using the `all_ids` mappings to safely join unique numeric tags so that collisions between duplicate team/player text names don't occur.
+
+[4] SCORING ENGINE METRICS (src/scoring/individual_score.py)
+- Laid down the skeleton matching the exact 7-pillar model requested in `ReadMe.md` (Mechanical, Clutch, Entry Success, Utility, Eco, Consistency, and Versatility).
+
+================================================================================
+PENDING NEXT:
+- [COMPLETED] "Notebook-first" math prototyping for the 7 player scores. The formulas effectively recognized Aspas/Wo0t/Karon/N4RRATE correctly.
+- [CURRENT] Official Migration of these validated scoring engines into `src/scoring/individual_score.py`.
+
+[5] STEP 3 SCORING LOGIC DEFINITIONS (Validated in notebook 02_scoring_logic.py)
+These are the mathematical formulas we will test in `notebooks/02_scoring_logic.py`:
+
+1. Mechanical Score (Raw Firepower)
+   - logic: (Average Combat Score * 0.45) + ((Kills / max(Deaths, 1)) * 30) + ((2k*2 + 3k*3 + 4k*4 + 5k*5) * 2)
+   - goal: Reward high-impact fragging and multi-kills.
+
+2. Clutch Score (Under Pressure)
+   - logic: (1v1 * 1) + (1v2 * 2) + (1v3 * 4) + (1v4 * 8) + (1v5 * 15)
+   - goal: Exponential reward for higher-difficulty situational clutches.
+
+3. Entry Success (Opening Duels)
+   - logic: First Kills / max((First Kills + First Deaths), 1) + (First Kills - Deaths)
+   - goal: Identify duelists/initiators who find the opening breakthrough without dying first.
+
+4. Utility Usage Score (Support Impact)
+   - logic: Assists per round + (Spike Plants * 0.5) + (Spike Defuses * 0.5)
+   - goal: Measure supportive contribution beyond pure aim.
+
+5. Economic Efficiency (Value generation)
+   - logic: (We will check if Econ Rating exists; otherwise, default to standard KAST/Rating heuristics).
+   - goal: Ability to thrive on low-buy/eco rounds.
+
+6. Consistency Score (Variance)
+   - logic: 1 / (Standard Deviation of `Rating` over last N matches + 0.1)
+   - goal: Punish coin-flip players; reward stable baselines across tournaments.
+
+7. Map/Agent Versatility
+   - logic: Distinct Count of Agents played + Win Rate spread across Maps.
+   - goal: Reward flex players over one-tricks.
+================================================================================
+
+[6] STEP 4 - BASELINE MODEL TRAINING (src/models/baseline_model.py)
+Status: CURRENT
+
+GOAL: Train an untuned XGBoost classifier that predicts Match Win/Loss
+using aggregated player scores as team-level features.
+
+--- HOW IT WORKS ---
+
+Step A: Aggregate Player Scores into Team Strength
+  - For each match + team, pick the 5 players that played (from overview).
+  - For each player, compute their per-match scores using PlayerScorer.
+  - Aggregate the 5 players into team-level stats:
+      * mean(Mechanical_Score)  -> avg raw firepower of the team
+      * mean(Clutch_Score)      -> avg clutch capability
+      * mean(Entry_Success)     -> avg opening duel performance
+      * mean(Utility_Score)     -> avg support/utility contribution
+      * max(Mechanical_Score)   -> star player headroom (ceiling fragging)
+      * std(Mechanical_Score)   -> team balance (low std = even carry load)
+
+Step B: Build a Head-to-Head Feature Row
+  - Per match row: [TeamA_features] - [TeamB_features] = DIFF features
+  - This creates a single row per match: how much stronger is Team A vs B?
+  - Target (label): 1 if Team A won, 0 if Team A lost.
+  - Source for labels: matches/scores.csv (compare Team A Score vs Team B Score).
+
+Step C: Train XGBoost Baseline
+  - Split: 80% train, 20% test (be careful NOT to leak future matches into train).
+  - Model: XGBoostClassifier with default hyperparameters (untuned baseline).
+  - Metrics: Accuracy, AUC-ROC, Log Loss.
+  - Save the trained model to: models/baseline_xgb.json
+
+Step D: Output
+  - Print evaluation metrics (Accuracy, AUC).
+  - Plot feature importance to show which pillar drives win prediction most.
+
+--- KEY FILES ---
+  - src/models/baseline_model.py  -> Main training pipeline
+  - notebooks/03_baseline_model.py -> Prototyping sandbox
+  - models/baseline_xgb.json      -> Saved model artifact
+
+================================================================================
+
+[7] STEP 4 - PRODUCTION MIGRATION (src/models/baseline_model.py)
+Status: CURRENT
+
+RESULTS FROM PROTOTYPE (notebooks/03_baseline_model.py):
+  - Accuracy : 81.37%
+  - AUC-ROC  : 0.8817
+  - Log Loss : 0.4934
+  - Trained on 8,986 real VCT matches (2021-2025), 80/20 chronological split.
+  - mech_mean_diff dominates at 84% feature importance (expected for VALORANT).
+
+WHAT WE ARE BUILDING NOW:
+  Migrate notebook logic into a clean reusable production module:
+
+  src/models/baseline_model.py
+  class BaselineModel
+    build_team_features(scored_df)           -> aggregate 5 players into team row
+    build_match_dataset(team_agg, scores_df) -> head-to-head diff rows + labels
+    train(X, y)                              -> XGBoost, chronological 80/20 split
+    evaluate(X_test, y_test)                 -> Accuracy / AUC / Log Loss
+    save(path)                               -> save to models/
+    load(path)                               -> reload for inference
+
+  Backend API will call BaselineModel.load() + predict() for live queries.
+
+================================================================================
+
+================================================================================
+PHASE 1 COMPLETE — CAPABILITIES SUMMARY (Aligned to ReadMe.md)
+================================================================================
+
+Phase 1 Goal from ReadMe.md:
+  Data pipeline + individual player scoring + baseline prediction
+
+--------------------------------------------------------------------------------
+WHAT THE CODEBASE CAN DO RIGHT NOW
+--------------------------------------------------------------------------------
+
+[MODULE 1 — Match Prediction Engine] (Partial — Baseline)
+  ReadMe Goal: Predict match outcomes using current rosters.
+  Current State:
+    ? Loads all VCT 2021–2025 player match data (882,930 clean records).
+    ? Computes individual player scores for all 10 players in a match.
+    ? Aggregates 5-player rosters into team-level strength features.
+    ? Builds head-to-head diff rows (Team A stats minus Team B stats).
+    ? Predicts Win/Loss using a trained XGBoost classifier.
+    ? Exposes predict_match(team_a_features, team_b_features) for live queries.
+  Baseline Results: Accuracy 81.37% | AUC-ROC 0.8817
+  Not yet built: chemistry adjustments, map advantages, role balance,
+                 Bo1/Bo3/Bo5 format modifiers, tournament stage modifiers.
+
+[SCORING SYSTEM — Individual Player Score]
+  ReadMe Goal: Score = mechanical_score + utility_score + clutch_score + more.
+  Current State:
+    ? mechanical_score: ACS, K/D, multi-kills (2k–5k)
+    ? clutch_score: Exponentially weighted 1v1 through 1v5 scenarios
+    ? entry_success: First Kills / (FK + FD) ratio + FKD differential
+    ? utility_score: Assists + Spike Plants + Spike Defuses
+    ? economic_score: Econ rating from kills_stats.csv
+    ? consistency_score: Placeholder (needs multi-match grouping — Phase 2)
+    ?? map_scores: Per-map win rate and stat performance (Phase 2)
+    ?? side_scores: Attack/defense normalized win rates (Phase 2)
+    ?? playoff_score: Elimination match performance multiplier (Phase 3)
+    ?? rookie_floor: Minimum floor for <10 T1 matches (Phase 2)
+
+[SCORING SYSTEM — Team Chemistry Score]
+  ReadMe Goal: Logarithmic chemistry buildup from 0-5-15+ matches together.
+    ?? Not yet built — scheduled for Phase 3 (core innovation).
+
+[SCORING SYSTEM — Role Balance Score]
+  ReadMe Goal: Penalise missing roles, bonus for full coverage.
+    ?? Not yet built — requires agent composition data (Phase 4).
+
+[SCORING SYSTEM — Map Performance Score]
+  ReadMe Goal: Historical win rate + attack/defense rates per map per team.
+    ?? Not yet built — requires maps_played.csv + maps_scores.csv (Phase 2).
+
+[DATA PIPELINE — src/data/]
+  ? loader.py: Loads overview, scores, kills_stats, team_mapping from all years.
+  ? cleaner.py: Drops 151 broken Chinese event matches, fills event nulls to 0.
+  ? resolver.py: Blueprint enforcing team_id/player_id joins (no string collisions).
+  ? keep_default_na=False: Safely handles player named "nan".
+  ? TBD teams filtered out at clean stage.
+
+[INFRASTRUCTURE]
+  ? venv/ virtual environment with all dependencies installed.
+  ? requirements.txt: pandas, numpy, xgboost, scikit-learn, jupyter.
+  ? models/baseline_xgb.json: Saved trained model ready for inference.
+  ? Notebook-first ? src/ production migration workflow established.
+
+--------------------------------------------------------------------------------
+PHASE 2 TARGETS (From ReadMe.md)
+--------------------------------------------------------------------------------
+  - Player comparison module (mechanical vs agent-adjusted mode)
+  - consistency_score using multi-match rolling window
+  - map_scores and side_scores per player per map
+  - rookie_floor applied for <10 T1 match players
+  - Full Module 3A (Player Intelligence — Compare any two players)
+  - Full Module 3B (Clutch Probability System)
+
+================================================================================
+
+
+================================================================================
+PHASE 1 COMPLETE - CAPABILITIES SUMMARY (Aligned to ReadMe.md)
+================================================================================
+
+Phase 1 Goal from ReadMe.md:
+  Data pipeline + individual player scoring + baseline prediction
+
+--------------------------------------------------------------------------------
+WHAT THE CODEBASE CAN DO RIGHT NOW
+--------------------------------------------------------------------------------
+
+[MODULE 1 - Match Prediction Engine] (Partial - Baseline)
+  ReadMe Goal: Predict match outcomes using current rosters.
+  Current State:
+    YES Loads all VCT 2021-2025 player match data (882,930 clean records).
+    YES Computes individual player scores for all 10 players in a match.
+    YES Aggregates 5-player rosters into team-level strength features.
+    YES Builds head-to-head diff rows (Team A stats minus Team B stats).
+    YES Predicts Win/Loss using a trained XGBoost classifier.
+    YES Exposes predict_match(team_a_features, team_b_features) for live queries.
+  Baseline Results: Accuracy 81.37% | AUC-ROC 0.8817
+  Not yet built: chemistry adjustments, map advantages, role balance,
+                 Bo1/Bo3/Bo5 format modifiers, tournament stage modifiers.
+
+[SCORING SYSTEM - Individual Player Score]
+  ReadMe Goal: Score = mechanical_score + utility_score + clutch_score + more.
+  Current State:
+    YES mechanical_score  : ACS, K/D, multi-kills (2k-5k)
+    YES clutch_score      : Exponentially weighted 1v1 through 1v5 scenarios
+    YES entry_success     : First Kills / (FK + FD) ratio + FKD differential
+    YES utility_score     : Assists + Spike Plants + Spike Defuses
+    YES economic_score    : Econ rating from kills_stats.csv
+    YES consistency_score : Placeholder (needs multi-match rolling window - Phase 2)
+    NO  map_scores        : Per-map win rate and stat performance (Phase 2)
+    NO  side_scores       : Attack/defense normalized win rates (Phase 2)
+    NO  playoff_score     : Elimination match performance multiplier (Phase 3)
+    NO  rookie_floor      : Minimum floor for <10 T1 matches (Phase 2)
+
+[SCORING SYSTEM - Team Chemistry Score]
+  ReadMe Goal: Logarithmic chemistry buildup from 0-5-15+ matches together.
+    NO - Not yet built. Scheduled for Phase 3 (core innovation).
+
+[SCORING SYSTEM - Role Balance Score]
+  ReadMe Goal: Penalise missing roles, bonus for full coverage.
+    NO - Not yet built. Requires agent composition data (Phase 4).
+
+[SCORING SYSTEM - Map Performance Score]
+  ReadMe Goal: Historical win rate + attack/defense rates per map per team.
+    NO - Not yet built. Requires maps_played.csv and maps_scores.csv (Phase 2).
+
+[DATA PIPELINE - src/data/]
+  YES loader.py   : Loads overview, scores, kills_stats, team_mapping all years.
+  YES cleaner.py  : Drops 151 broken Chinese event matches, fills event nulls to 0.
+  YES resolver.py : Blueprint enforcing team_id/player_id joins (no string collisions).
+  YES keep_default_na=False handles the player named nan correctly.
+  YES TBD teams filtered out at clean stage.
+
+[INFRASTRUCTURE]
+  YES venv/ virtual environment with all dependencies installed.
+  YES requirements.txt: pandas, numpy, xgboost, scikit-learn, jupyter.
+  YES models/baseline_xgb.json: Saved trained model ready for inference.
+  YES Notebook-first then src/ production migration workflow established.
+
+--------------------------------------------------------------------------------
+PHASE 2 TARGETS (from ReadMe.md - Module 3 Player Intelligence)
+--------------------------------------------------------------------------------
+  - Player comparison module (mechanical vs agent-adjusted mode)
+  - consistency_score using multi-match rolling window
+  - map_scores and side_scores per player per map
+  - rookie_floor applied for players with fewer than 10 T1 matches
+  - Full Module 3A: Compare any two players head to head
+  - Full Module 3B: Clutch probability system (1v1 through 1v5)
+
+================================================================================
