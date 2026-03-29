@@ -2,276 +2,437 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VALORANT AI Predictor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VALORANT AI Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    h1, h2 { color: #E13A31; }
-    label { display: block; margin: .6rem 0 .2rem; }
-    textarea, input, select { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 0.35rem; }
-    button { margin-top: 1rem; padding: .7rem 1.2rem; background: #E13A31; color: white; border: none; border-radius: .35rem; cursor: pointer; }
-    button:hover { background: #c12f2a; }
-    .map-btn { padding: .4rem .5rem; border: 1px solid #999; border-radius: .2rem; background: #f0f0f0; color:#222; cursor:pointer; text-align:center; }
-    .map-btn.selected { background: #1f7f9a; color: white; border-color: #0f5768; }
-    .map-btn.disabled { opacity: .35; cursor: not-allowed; }
-    pre { margin: 1rem 0; background: #f7f7f7; padding: 1rem; border: 1px solid #ddd; white-space: pre-wrap; }
+    :root {
+      --val-red: #FF4655;
+      --val-dark: #0f1923;
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text-main: #ece8e1;
+      --text-muted: #8b978f;
+    }
+    body {
+      margin: 0; padding: 2rem;
+      font-family: 'Outfit', sans-serif;
+      background: linear-gradient(135deg, #0f1923 0%, #080d12 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .container {
+      width: 100%; max-width: 900px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 12px;
+      padding: 2.5rem;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+    }
+    h1 {
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin-top: 0;
+      font-size: 2.5rem;
+      text-align: center;
+    }
+    h1 span { color: var(--val-red); }
+    
+    .section {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--glass-border);
+    }
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-main);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .form-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    
+    /* Inputs */
+    input[type="text"] {
+      width: 100%;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      padding: 1rem;
+      font-size: 1.1rem;
+      font-family: inherit;
+      border-radius: 6px;
+      outline: none;
+      transition: all 0.3s ease;
+      box-sizing: border-box;
+    }
+    input[type="text"]:focus {
+      border-color: var(--val-red);
+      box-shadow: 0 0 10px rgba(255, 70, 85, 0.2);
+    }
+    
+    /* Toggle */
+    .toggle-container {
+      display: flex;
+      background: rgba(255,255,255,0.05);
+      border-radius: 6px;
+      padding: 4px;
+      width: max-content;
+    }
+    .toggle-btn {
+      padding: 0.6rem 2rem;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .toggle-btn.active {
+      background: var(--val-red);
+      color: white;
+      box-shadow: 0 4px 15px rgba(255, 70, 85, 0.4);
+    }
+    
+    /* White Buttons Group (Format & Maps) */
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+    }
+    .btn-white {
+      padding: 0.8rem 1.5rem;
+      background: white;
+      color: #111;
+      border: 2px solid transparent;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .btn-white:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255,255,255,0.2);
+    }
+    .btn-white.lit {
+      background: var(--val-red);
+      color: white;
+      border-color: var(--val-red);
+      box-shadow: 0 0 20px rgba(255, 70, 85, 0.6);
+      transform: scale(1.05);
+    }
+    
+    /* Map Grid */
+    .map-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 0.8rem;
+    }
+    
+    /* Action Button */
+    .predict-btn {
+      width: 100%;
+      margin-top: 3rem;
+      padding: 1.2rem;
+      font-size: 1.2rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: white;
+      background: var(--val-red);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .predict-btn:hover {
+      background: #ff5b68;
+      box-shadow: 0 0 25px rgba(255, 70, 85, 0.6);
+    }
+    
+    /* Output Area */
+    #reportArea {
+      margin-top: 2rem;
+      display: none;
+    }
+    .prob-bar-container {
+      width: 100%;
+      height: 30px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 15px;
+      margin: 1.5rem 0;
+      overflow: hidden;
+      display: flex;
+    }
+    .prob-fill {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 0.9rem;
+      transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .prob-a { background: var(--val-red); }
+    .prob-b { background: #1f7f9a; }
+    
+    .map-result {
+      background: rgba(0,0,0,0.3);
+      padding: 1rem;
+      border-radius: 8px;
+      margin-top: 1rem;
+    }
+    .matchup-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--glass-border);
+      padding: 0.5rem 0;
+    }
+    .matchup-row.adv-a { color: var(--val-red); font-weight: 600; }
+    .matchup-row.adv-b { color: #51c9ea; font-weight: 600; }
   </style>
 </head>
 <body>
-  <h1>VALORANT AI Match Predictor</h1>
-  <p>Enter teams and match context, then run the model with backend API at <code>http://127.0.0.1:8000</code>.</p>
 
-  <label>Team A</label>
-  <select id="teamA"></select>
-  <small id="teamAPlayers" style="display:block; margin-bottom:0.7rem; color:#444;">Select team A to load players</small>
+<div class="container">
+  <h1>AI Match <span>Predictor</span></h1>
+  
+  <!-- Datalist automatically provides browser-native dropdown search filtering -->
+  <datalist id="teamsList"></datalist>
 
-  <label>Team B</label>
-  <select id="teamB"></select>
-  <small id="teamBPlayers" style="display:block; margin-bottom:0.7rem; color:#444;">Select team B to load players</small>
+  <div class="form-group">
+    <div>
+      <div class="section-title">Team A</div>
+      <input type="text" id="teamAInput" list="teamsList" placeholder="Type to search (e.g. Sentinels)">
+    </div>
+    <div>
+      <div class="section-title">Team B</div>
+      <input type="text" id="teamBInput" list="teamsList" placeholder="Type to search (e.g. Gen.G)">
+    </div>
+  </div>
 
-  <label>Map Pool (select from Valorant maps)</label>
-  <div id="mapSelector" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem; margin-bottom:1rem;"></div>
-  <small>Select maps up to the chosen format limit (Bo1=1, Bo3=3, Bo5=5)</small>
+  <div class="section">
+    <div class="section-title">Match Format</div>
+    <div class="button-group" id="formatGroup">
+      <button class="btn-white" data-val="Bo1">Bo1</button>
+      <button class="btn-white lit" data-val="Bo3">Bo3</button>
+      <button class="btn-white" data-val="Bo5">Bo5</button>
+    </div>
+  </div>
 
-  <label>Format</label>
-  <select id="format"><option value="Bo3" selected>Bo3</option><option value="Bo1">Bo1</option><option value="Bo5">Bo5</option></select>
+  <div class="section">
+    <div class="section-title">Stage</div>
+    <div class="toggle-container" id="stageToggle">
+      <button class="toggle-btn active" data-val="Group">Group Stage</button>
+      <button class="toggle-btn" data-val="Playoffs">Playoffs Stage</button>
+    </div>
+  </div>
 
-  <label>Stage</label>
-  <select id="stage"><option value="Group" selected>Group</option><option value="Playoffs">Playoffs</option></select>
+  <div class="section">
+    <div class="section-title">Map Pool <span id="mapLimitText" style="font-weight:300; font-size:0.9rem; color:var(--text-muted);">(Select 3)</span></div>
+    <div class="map-grid" id="mapGrid">
+      <!-- Generated via JS -->
+    </div>
+  </div>
 
-  <button id="predictBtn">Predict Match</button>
+  <button class="predict-btn" id="predictBtn">Analyze Matchup</button>
 
-  <h2>Result</h2>
-  <div id="result">No prediction yet.</div>
-  <p id="teamDescriptions" style="color:#555;">Loading team rosters...</p>
+  <div id="reportArea">
+    <h2 style="text-align:center; font-size:2rem; margin-top:2rem;">Prediction <span style="color:var(--val-red)">Report</span></h2>
+    <div id="winnerAnnounce" style="text-align:center; font-size:1.4rem; font-weight:300;"></div>
+    
+    <div class="prob-bar-container" id="probBarContainer" style="display:none;">
+      <div class="prob-fill prob-a" id="barA" style="width: 50%;">50%</div>
+      <div class="prob-fill prob-b" id="barB" style="width: 50%;">50%</div>
+    </div>
+    
+    <div id="mapBreakdown"></div>
+  </div>
 
-  <script>
-    const API_BASE = new URLSearchParams(window.location.search).get('api') || 'http://127.0.0.1:8005';
-    const VALORANT_MAPS = ['bind','haven','split','pearl','ascent','icebox','breeze','fracture','lotus','sunset','abyss','corrode'];
-    const mapSelector = document.getElementById('mapSelector');
-    const resultEl = document.getElementById('result');
+</div>
 
-    function formatMapName(m) { return m.charAt(0).toUpperCase() + m.slice(1); }
-
-    function renderMapButtons() {
-      mapSelector.innerHTML = '';
-      for (const map of VALORANT_MAPS) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'map-btn';
-        btn.textContent = formatMapName(map);
-        btn.dataset.map = map;
-        btn.addEventListener('click', () => toggleMapSelection(map));
-        mapSelector.appendChild(btn);
-      }
-    }
-
-    function selectedMaps() {
-      return [...mapSelector.querySelectorAll('.map-btn.selected')].map(b => b.dataset.map);
-    }
-
-    function setSelectionLimit() {
-      const fmt = document.getElementById('format').value;
-      const limit = fmt === 'Bo1' ? 1 : fmt === 'Bo3' ? 3 : 5;
-      const selected = selectedMaps();
-      const buttons = [...mapSelector.querySelectorAll('.map-btn')];
-      buttons.forEach(btn => {
-        btn.classList.remove('disabled');
-      });
-      if (selected.length >= limit) {
-        for (const btn of buttons) {
-          if (!btn.classList.contains('selected')) {
-            btn.classList.add('disabled');
-          }
-        }
-      }
-    }
-
-    function toggleMapSelection(map) {
-      const fmt = document.getElementById('format').value;
-      let limit = fmt === 'Bo1' ? 1 : fmt === 'Bo3' ? 3 : 5;
-      const btn = mapSelector.querySelector(`[data-map='${map}']`);
-      if (!btn) return;
-      if (btn.classList.contains('selected')) {
-        btn.classList.remove('selected');
-      } else {
-        const curr = selectedMaps();
-        if (curr.length >= limit) return;
-        btn.classList.add('selected');
-      }
-      setSelectionLimit();
-    }
-
-    function validateMapPool() {
-      const fmt = document.getElementById('format').value;
-      const maps = selectedMaps();
-      if (fmt === 'Bo1' && maps.length !== 1) {
-        return 'Bo1 requires exactly 1 selected map.';
-      }
-      if (fmt === 'Bo3' && maps.length > 3) {
-        return 'Bo3 allows up to 3 selected maps.';
-      }
-      if (fmt === 'Bo5' && maps.length > 5) {
-        return 'Bo5 allows up to 5 selected maps.';
-      }
-      if (maps.length < 1) {
-        return 'At least one map must be selected.';
-      }
-      return null;
-    }
-
-    function setTeamSelectors(teams) {
-      const selA = document.getElementById('teamA');
-      const selB = document.getElementById('teamB');
-      selA.innerHTML = '<option value="">-- select team --</option>';
-      selB.innerHTML = '<option value="">-- select team --</option>';
-      teams.forEach((team) => {
-        const oA = document.createElement('option'); oA.value = team; oA.text = team; selA.appendChild(oA);
-        const oB = document.createElement('option'); oB.value = team; oB.text = team; selB.appendChild(oB);
-      });
-    }
-
-    const FALLBACK_ROSTERS = {
-      'Sentinels': ['TenZ','shahzam','zombs','nitr0','dapr'],
-      'Liquid': ['aspas','t3xture','Karon','Lakia','Meteor'],
-      '100 Thieves': ['derke','yay','envy','Mistic','SicK'],
-      'FaZe': ['frozen','f0rsakeN','sacy','nAts','Derrek']
-    };
-
-    async function loadTeams() {
-      try {
-        const r = await fetch(`${API_BASE}/rosters`);
-        if (!r.ok) {
-          throw new Error('Unable to load rosters: ' + r.status);
-        }
-        const data = await r.json();
-        setTeamSelectors(data.teams);
-        document.getElementById('teamDescriptions').textContent = 'Loaded ' + data.teams.length + ' teams from /rosters ('+API_BASE+')';
-        window.TEAM_ROSTERS = data.rosters;
-        return;
-      } catch (err) {
-        console.warn('API roster load failed:', err);
-      }
-
-      try {
-        const csv = await fetch('tier1_rosters.csv');
-        const text = await csv.text();
-        const lines = text.trim().split(/\r?\n/);
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const teamIdx = headers.indexOf('team_name');
-        const playerIdx = headers.indexOf('player_name');
-        if (teamIdx >= 0 && playerIdx >= 0) {
-          const rosters = {};
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',');
-            const team = cols[teamIdx]?.trim();
-            const player = cols[playerIdx]?.trim();
-            if (!team || !player) continue;
-            rosters[team] = rosters[team] || [];
-            if (!rosters[team].includes(player) && rosters[team].length < 5) {
-              rosters[team].push(player);
-            }
-          }
-          if (Object.keys(rosters).length > 0) {
-            window.TEAM_ROSTERS = rosters;
-            setTeamSelectors(Object.keys(rosters));
-            document.getElementById('teamDescriptions').textContent = 'Loaded ' + Object.keys(rosters).length + ' teams from tier1_rosters.csv';
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('Local CSV roster load failed:', err);
-      }
-
-      document.getElementById('teamDescriptions').textContent = 'Using fallback rosters; please start API or ensure tier1_rosters.csv is accessible.';
-      window.TEAM_ROSTERS = FALLBACK_ROSTERS;
-      setTeamSelectors(Object.keys(FALLBACK_ROSTERS));
-    }
-
-    function showTeamPlayers(teamId, outputId) {
-      const output = document.getElementById(outputId);
-      if (!teamId || !window.TEAM_ROSTERS || !window.TEAM_ROSTERS[teamId]) {
-        output.textContent = 'No team selected.';
-        return;
-      }
-      output.textContent = 'Players: ' + window.TEAM_ROSTERS[teamId].join(', ');
-    }
-
-    document.getElementById('teamA').addEventListener('change', (e) => showTeamPlayers(e.target.value, 'teamAPlayers'));
-    document.getElementById('teamB').addEventListener('change', (e) => showTeamPlayers(e.target.value, 'teamBPlayers'));
-
-    document.getElementById('format').addEventListener('change', () => {
-      const selected = selectedMaps();
-      if (selected.length > (document.getElementById('format').value === 'Bo1' ? 1 : document.getElementById('format').value === 'Bo3' ? 3 : 5)) {
-        mapSelector.querySelectorAll('.map-btn.selected').forEach((btn, i) => {
-          const max = document.getElementById('format').value === 'Bo1' ? 1 : document.getElementById('format').value === 'Bo3' ? 3 : 5;
-          if (i >= max) btn.classList.remove('selected');
-        });
-      }
-      setSelectionLimit();
-    });
-
-    renderMapButtons();
-    setSelectionLimit();
-
-    loadTeams();
-
-    document.getElementById('predictBtn').addEventListener('click', async () => {
-      const teamAId = document.getElementById('teamA').value;
-      const teamBId = document.getElementById('teamB').value;
-      const teamA = (window.TEAM_ROSTERS && window.TEAM_ROSTERS[teamAId]) ? window.TEAM_ROSTERS[teamAId] : [];
-      const teamB = (window.TEAM_ROSTERS && window.TEAM_ROSTERS[teamBId]) ? window.TEAM_ROSTERS[teamBId] : [];
-      const mapPool = selectedMaps();
-      const fmt = document.getElementById('format').value;
-      const stage = document.getElementById('stage').value;
-
-      if (!teamAId || !teamBId) {
-        resultEl.innerHTML = '<p style="color: red;">Please select both teams.</p>';
-        return;
-      }
-      if (teamAId === teamBId) {
-        resultEl.innerHTML = '<p style="color: red;">Team A and Team B must be different.</p>';
-        return;
-      }
-      if (teamA.length !== 5 || teamB.length !== 5) {
-        resultEl.innerHTML = '<p style="color: red;">Each selected team must have exactly 5 players in the roster.</p>';
-        return;
-      }
-      if (fmt === 'Bo1' && mapPool.length !== 1) {
-        resultEl.innerHTML = '<p style="color: red;">Bo1 requires exactly 1 map.</p>';
-        return;
-      }
-      if (fmt === 'Bo3' && mapPool.length > 3) {
-        resultEl.innerHTML = '<p style="color: red;">Bo3 max is 3 maps.</p>';
-        return;
-      }
-      if (fmt === 'Bo5' && mapPool.length > 5) {
-        resultEl.innerHTML = '<p style="color: red;">Bo5 max is 5 maps.</p>';
-        return;
-      }
-      if (mapPool.length < 1) {
-        resultEl.innerHTML = '<p style="color: red;">At least one map is required.</p>';
-        return;
-      }
-
-      resultEl.innerHTML = '<p>Loading prediction...</p>';
-      try {
-        const response = await fetch('http://127.0.0.1:8000/predict/match', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_a: teamA, team_b: teamB, map_pool: mapPool, format: fmt, stage: stage })
-        });
-        if (!response.ok) {
-          const e = await response.text();
-          resultEl.innerHTML = '<pre>Error: ' + response.status + '\n' + e + '</pre>';
-          return;
-        }
-        const data = await response.json();
-        resultEl.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
-      } catch (err) {
-        resultEl.innerHTML = '<pre>Error: ' + err.message + '</pre>';
+<script>
+  let currentFormat = 'Bo3';
+  let currentStage = 'Group';
+  let selectedMaps = [];
+  const VALORANT_MAPS = ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus', 'Pearl', 'Fracture', 'Sunset', 'Abyss', 'Corrode'];
+  
+  // Format Selection Logic
+  document.querySelectorAll('#formatGroup .btn-white').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('#formatGroup .btn-white').forEach(b => b.classList.remove('lit'));
+      e.target.classList.add('lit');
+      currentFormat = e.target.dataset.val;
+      
+      let limit = currentFormat === 'Bo1' ? 1 : currentFormat === 'Bo3' ? 3 : 5;
+      document.getElementById('mapLimitText').textContent = `(Select ${limit})`;
+      
+      // Enforce limits immediately
+      if(selectedMaps.length > limit) {
+        selectedMaps = selectedMaps.slice(0, limit);
+        renderMapGrid();
       }
     });
-  </script>
+  });
+
+  // Stage Selection Logic
+  document.querySelectorAll('#stageToggle .toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('#stageToggle .toggle-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentStage = e.target.dataset.val;
+    });
+  });
+
+  // Map Grid Selection Logic
+  function renderMapGrid() {
+    const grid = document.getElementById('mapGrid');
+    grid.innerHTML = '';
+    VALORANT_MAPS.forEach(m => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-white map-btn';
+      if(selectedMaps.includes(m)) btn.classList.add('lit');
+      btn.textContent = m;
+      
+      btn.addEventListener('click', () => {
+        let limit = currentFormat === 'Bo1' ? 1 : currentFormat === 'Bo3' ? 3 : 5;
+        if(selectedMaps.includes(m)) {
+          selectedMaps = selectedMaps.filter(x => x !== m); // Allow unselecting
+        } else {
+          if(selectedMaps.length >= limit) {
+             selectedMaps.shift(); // Remove the oldest selected map to make room
+          }
+          selectedMaps.push(m);
+        }
+        renderMapGrid();
+      });
+      grid.appendChild(btn);
+    });
+  }
+  renderMapGrid();
+
+  // Load backend Teams
+  async function initTeams() {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/rosters');
+      const data = await res.json();
+      const dl = document.getElementById('teamsList');
+      data.teams.forEach(t => {
+        const op = document.createElement('option');
+        op.value = t;
+        dl.appendChild(op);
+      });
+    } catch(err) {
+      console.warn("Make sure FastAPI is running on port 8000!");
+    }
+  }
+  initTeams();
+
+  // Send Prediction to Backend
+  document.getElementById('predictBtn').addEventListener('click', async () => {
+    const ta = document.getElementById('teamAInput').value;
+    const tb = document.getElementById('teamBInput').value;
+    let limit = currentFormat === 'Bo1' ? 1 : currentFormat === 'Bo3' ? 3 : 5;
+    
+    if(!ta || !tb) return alert("Please type or select both Teams.");
+    if(selectedMaps.length !== limit) return alert(`Please select exactly ${limit} maps. You currently have ${selectedMaps.length} selected.`);
+    
+    const btn = document.getElementById('predictBtn');
+    btn.textContent = 'Analyzing Variables...';
+    btn.style.opacity = '0.5';
+
+    try {
+      const qs = `?team_a=${encodeURIComponent(ta)}&team_b=${encodeURIComponent(tb)}&format=${currentFormat}&stage=${currentStage}`;
+      let url = 'http://127.0.0.1:8000/predict/team-vs-team' + qs;
+      selectedMaps.forEach(m => url += `&map_pool=${encodeURIComponent(m)}`);
+      
+      const res = await fetch(url);
+      if(!res.ok) {
+        const text = await res.text();
+        try {
+           const jsonErr = JSON.parse(text);
+           throw new Error(jsonErr.detail || text);
+        } catch {
+           throw new Error(text);
+        }
+      }
+      const data = await res.json();
+      renderReport(data);
+    } catch (err) {
+      alert("Error generating prediction: " + err.message);
+    } finally {
+      btn.textContent = 'Analyze Matchup';
+      btn.style.opacity = '1';
+    }
+  });
+
+  // Display Report
+  function renderReport(data) {
+    document.getElementById('reportArea').style.display = 'block';
+    
+    const teamA = data.team_a.toUpperCase();
+    const teamB = data.team_b.toUpperCase();
+    const probA = data.team_a_average_win_prob;
+    const probB = data.team_b_average_win_prob;
+    
+    document.getElementById('winnerAnnounce').innerHTML = `
+      ${teamA} vs ${teamB}
+    `;
+    
+    document.getElementById('probBarContainer').style.display = 'flex';
+    document.getElementById('barA').style.width = probA + '%';
+    document.getElementById('barB').style.width = probB + '%';
+    document.getElementById('barA').textContent = probA + '% (' + teamA + ')';
+    document.getElementById('barB').textContent = probB + '% (' + teamB + ')';
+
+    let html = '';
+    data.map_results.forEach(mr => {
+      html += `<div class="map-result">`;
+      html += `<h3 style="margin-top:0; color:#fff">${mr.map.toUpperCase()} <span style="font-weight:300; font-size:1rem; color:#aaa; margin-left:1rem;">${mr.team_a_win_prob}% vs ${mr.team_b_win_prob}%</span></h3>`;
+      
+      mr.player_matchup.player_matchups.forEach(pm => {
+         let pA = pm.player_a;
+         let pB = pm.player_b;
+         let advClass = pm.advantage === 'A' ? 'adv-a' : 'adv-b';
+         let sym = pm.advantage === 'A' ? '>>>' : '<<<';
+         
+         html += `
+           <div class="matchup-row ${advClass}">
+             <span style="width: 35%;">${pA}</span>
+             <span style="width: 30%; text-align:center; color:#777; font-weight:400; font-size:0.9rem;">${pm.map_score_a} ${sym} ${pm.map_score_b}</span>
+             <span style="width: 35%; text-align:right;">${pB}</span>
+           </div>
+         `;
+      });
+      html += `</div>`;
+    });
+    
+    document.getElementById('mapBreakdown').innerHTML = html;
+    
+    setTimeout(() => {
+        document.getElementById('reportArea').scrollIntoView({behavior: 'smooth'});
+    }, 100);
+  }
+
+</script>
 </body>
 </html>

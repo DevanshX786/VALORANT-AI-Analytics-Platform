@@ -373,6 +373,11 @@ MODULE 1 - WORK REMAINING
   POST /predict/match   -> two rosters + map pool + format -> full prediction JSON
   GET  /players/search  -> player name autocomplete for frontend
   GET  /player/{name}   -> individual score breakdown card
+  Updates:
+    - Added CORSMiddleware globally to support local React frontend deployments.
+    - Implemented strict case-insensitivity mapping for all map queries and player profile retrievals.
+    - Structured predictions JSON accurately with percentage values rounded for UI readability.
+    - Expanded standalone player map lookups to cover all 12 current and legacy VCT maps.
 
 [TODO] STEP 10 - React Frontend + Deployment  (frontend/)
   Pages:

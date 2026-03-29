@@ -399,14 +399,14 @@ def predict_team_vs_team(
     prediction = predict_match(req)
 
     return {
+        **prediction,
         'team_a': team_a,
         'team_b': team_b,
         'team_a_roster': team_a_roster,
         'team_b_roster': team_b_roster,
         'format': format,
         'stage': stage,
-        'map_pool': map_pool,
-        **prediction
+        'map_pool': map_pool
     }
 
 
