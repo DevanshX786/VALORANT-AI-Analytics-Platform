@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import pandas as pd
@@ -26,6 +27,15 @@ class MatchPredictRequest(BaseModel):
 app = FastAPI(
     title="VALORANT AI Analytics Platform API",
     version="0.1"
+)
+
+# Add CORS Middleware to ensure the upcoming React frontend can communicate with the backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -231,8 +241,10 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
 def player_matchup_analysis(team_a: List[str], team_b: List[str], map_name: str) -> Dict:
     analysis = []
     for pa, pb in zip(team_a, team_b):
-        score_a = map_engine.get_player_map_score(pa, map_name)['map_score']
-        score_b = map_engine.get_player_map_score(pb, map_name)['map_score']
+        resolved_pa = resolve_player_name(pa) or pa
+        resolved_pb = resolve_player_name(pb) or pb
+        score_a = map_engine.get_player_map_score(resolved_pa, map_name)['map_score']
+        score_b = map_engine.get_player_map_score(resolved_pb, map_name)['map_score']
         analysis.append({
             'player_a': pa,
             'player_b': pb,
@@ -269,22 +281,23 @@ def predict_match(req: MatchPredictRequest):
         raise HTTPException(status_code=400, detail='Bo5 requires at least 1 map.')
 
     map_results = []
-    for map_name in map_pool:
+    for map_name_in in map_pool:
+        map_name = map_name_in.title()
         fa = build_team_features(team_a, map_name, req.stage, req.format)
         fb = build_team_features(team_b, map_name, req.stage, req.format)
         pred = model.predict_match(fa, fb)
 
         map_results.append({
             'map': map_name,
-            'team_a_win_prob': pred['team_a_win_prob'],
-            'team_b_win_prob': pred['team_b_win_prob'],
+            'team_a_win_prob': round(pred['team_a_win_prob'] * 100, 3),
+            'team_b_win_prob': round(pred['team_b_win_prob'] * 100, 3),
             'predicted_winner': pred['predicted_winner'],
             'player_matchup': player_matchup_analysis(team_a, team_b, map_name)
         })
 
     # overall aggregator by averaging map odds
-    team_a_avg = float(np.mean([r['team_a_win_prob'] for r in map_results]))
-    team_b_avg = float(np.mean([r['team_b_win_prob'] for r in map_results]))
+    team_a_avg = round(float(np.mean([r['team_a_win_prob'] for r in map_results])), 3)
+    team_b_avg = round(float(np.mean([r['team_b_win_prob'] for r in map_results])), 3)
 
     return {
         'team_a': team_a,
@@ -294,8 +307,7 @@ def predict_match(req: MatchPredictRequest):
         'stage': req.stage,
         'team_a_average_win_prob': team_a_avg,
         'team_b_average_win_prob': team_b_avg,
-        'map_results': map_results,
-        'recommended_bans': map_pool[:2],  # simple placeholder, from lowest team_a performance maybe
+        'map_results': map_results
     }
 
 
@@ -314,23 +326,24 @@ def get_rosters():
 
 @app.get('/player/{name}')
 def player_detail(name: str):
-    if name not in player_summary.index:
+    resolved = resolve_player_name(name)
+    if not resolved or resolved not in player_summary.index:
         raise HTTPException(status_code=404, detail='Player not found')
 
-    row = player_summary.loc[name]
+    row = player_summary.loc[resolved]
     fix = row.to_dict()
     res = {
-        'player': name,
+        'player': resolved,
         'mechanical_score': float(fix['mech_mean']),
         'clutch_score': float(fix['clutch_mean']),
         'entry_score': float(fix['entry_mean']),
         'utility_score': float(fix['util_mean']),
         'economic_score': float(fix['eco_mean']),
         'consistency_score': float(fix['consistency_mean']),
-        'agent': agent_lookup.get(name, 'Unknown'),
+        'agent': agent_lookup.get(resolved, 'Unknown'),
         'map_scores': {
-            m: map_engine.get_player_map_score(name, m)['map_score']
-            for m in ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus']
+            m: map_engine.get_player_map_score(resolved, m)['map_score']
+            for m in ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus', 'Pearl', 'Fracture', 'Sunset', 'Abyss', 'Corrode']
         }
     }
     return res

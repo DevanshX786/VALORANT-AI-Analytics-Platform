@@ -167,8 +167,9 @@ class MapScoreEngine:
     # ------------------------------------------------------------------
     def get_player_map_score(self, player: str, map_name: str) -> dict:
         """Returns map performance data for a specific player on a specific map."""
+        map_name_clean = map_name.strip().title()
         try:
-            row = self._player_map_table.loc[(player, map_name)]
+            row = self._player_map_table.loc[(player, map_name_clean)]
             return {
                 'map_score':     round(float(row.get('map_score', 0)),    3),
                 'map_acs':       round(float(row.get('map_acs_mean', 0)), 1),
