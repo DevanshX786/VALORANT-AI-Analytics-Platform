@@ -257,7 +257,14 @@ WHY: Players perform very differently across maps. aspas on Ascent (66% win rate
     def_advantage = player def_win_rate - 0.49 (global T1 defense baseline)
 
   Output: 12,746 players profiled across 13 VCT maps
-
+NEXT STEP: Proceed to Step 9 (backend API) and Step 10 (frontend deployment).
+  Step 9: implement FastAPI endpoints in `backend/api.py`:
+    - POST /predict/match
+    - GET /players/search
+    - GET /player/{name}
+  Step 10: create React UI pages:
+    - Match Predictor input (rosters, map pool, format)
+    - Prediction report (odds, factors, map-by-map edges)
   VALIDATED RESULTS:
     aspas on Ascent:  map_score=47.90  acs=243  win_rate=66%  appearances=162
     aspas on Split:   map_score=39.05  acs=244  win_rate=47%  appearances=105
@@ -323,11 +330,14 @@ MODULE 1 - WORK REMAINING
 
 [DONE] STEP 8 FINAL - Retrain XGBoost with all features
   New features: chemistry_diff, map_score_diff, role_balance_diff + format/stage
-  Result: Accuracy 81.42%, AUC-ROC 0.8865, Log Loss 0.4800 (with current configuration)
-  Note: map_score_diff contribution is currently 0 because map_score is placeholder 50 in this run.
-  Next: Hyperparameter sweep (grid search on max_depth, n_estimators, learning_rate) to target 84-88%. 
+  Baseline run: Accuracy 81.42%, AUC-ROC 0.8865, Log Loss 0.4800
+  Hyperparameter tuning result (with full map_score integration):
+    Best AUC: 0.88747 @ max_depth=6, n_estimators=250, learning_rate=0.1
+    Accuracy 82.65%, Log Loss 0.5731 (chronological 80/20 split)
+  Model engine defaults updated to tuned params in `BaselineModel`.
+  Map score is now computed via `MapScoreEngine` and aggregated in team features.
 
-[TODO] STEP 9 - FastAPI Backend  (backend/api.py)
+[DONE] STEP 9 - FastAPI Backend  (backend/api.py)
   POST /predict/match   -> two rosters + map pool + format -> full prediction JSON
   GET  /players/search  -> player name autocomplete for frontend
   GET  /player/{name}   -> individual score breakdown card

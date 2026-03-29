@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VALORANT AI Predictor</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1, h2 { color: #E13A31; }
+    label { display: block; margin: .6rem 0 .2rem; }
+    textarea, input, select { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 0.35rem; }
+    button { margin-top: 1rem; padding: .7rem 1.2rem; background: #E13A31; color: white; border: none; border-radius: .35rem; cursor: pointer; }
+    button:hover { background: #c12f2a; }
+    .map-btn { padding: .4rem .5rem; border: 1px solid #999; border-radius: .2rem; background: #f0f0f0; color:#222; cursor:pointer; text-align:center; }
+    .map-btn.selected { background: #1f7f9a; color: white; border-color: #0f5768; }
+    .map-btn.disabled { opacity: .35; cursor: not-allowed; }
+    pre { margin: 1rem 0; background: #f7f7f7; padding: 1rem; border: 1px solid #ddd; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>VALORANT AI Match Predictor</h1>
+  <p>Enter teams and match context, then run the model with backend API at <code>http://127.0.0.1:8000</code>.</p>
+
+  <label>Team A (comma-separated 5 players)</label>
+  <textarea id="teamA" rows="2">aspas,t3xture,Karon,Lakia,Meteor</textarea>
+
+  <label>Team B (comma-separated 5 players)</label>
+  <textarea id="teamB" rows="2">TenZ,rush,zombs,nitr0,shahzam</textarea>
+
+  <label>Map Pool (select from Valorant maps)</label>
+  <div id="mapSelector" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem; margin-bottom:1rem;"></div>
+  <small>Select maps up to the chosen format limit (Bo1=1, Bo3=3, Bo5=5)</small>
+
+  <label>Format</label>
+  <select id="format"><option value="Bo3" selected>Bo3</option><option value="Bo1">Bo1</option><option value="Bo5">Bo5</option></select>
+
+  <label>Stage</label>
+  <select id="stage"><option value="Group" selected>Group</option><option value="Playoffs">Playoffs</option></select>
+
+  <button id="predictBtn">Predict Match</button>
+
+  <h2>Result</h2>
+  <div id="result">No prediction yet.</div>
+
+  <script>
+    const VALORANT_MAPS = ['bind','haven','split','pearl','ascent','icebox','breeze','fracture','lotus','sunset','abyss','corrode'];
+    const mapSelector = document.getElementById('mapSelector');
+    const resultEl = document.getElementById('result');
+
+    function formatMapName(m) { return m.charAt(0).toUpperCase() + m.slice(1); }
+
+    function renderMapButtons() {
+      mapSelector.innerHTML = '';
+      for (const map of VALORANT_MAPS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'map-btn';
+        btn.textContent = formatMapName(map);
+        btn.dataset.map = map;
+        btn.addEventListener('click', () => toggleMapSelection(map));
+        mapSelector.appendChild(btn);
+      }
+    }
+
+    function selectedMaps() {
+      return [...mapSelector.querySelectorAll('.map-btn.selected')].map(b => b.dataset.map);
+    }
+
+    function setSelectionLimit() {
+      const fmt = document.getElementById('format').value;
+      const limit = fmt === 'Bo1' ? 1 : fmt === 'Bo3' ? 3 : 5;
+      const selected = selectedMaps();
+      const buttons = [...mapSelector.querySelectorAll('.map-btn')];
+      buttons.forEach(btn => {
+        btn.classList.remove('disabled');
+      });
+      if (selected.length >= limit) {
+        for (const btn of buttons) {
+          if (!btn.classList.contains('selected')) {
+            btn.classList.add('disabled');
+          }
+        }
+      }
+    }
+
+    function toggleMapSelection(map) {
+      const fmt = document.getElementById('format').value;
+      let limit = fmt === 'Bo1' ? 1 : fmt === 'Bo3' ? 3 : 5;
+      const btn = mapSelector.querySelector(`[data-map='${map}']`);
+      if (!btn) return;
+      if (btn.classList.contains('selected')) {
+        btn.classList.remove('selected');
+      } else {
+        const curr = selectedMaps();
+        if (curr.length >= limit) return;
+        btn.classList.add('selected');
+      }
+      setSelectionLimit();
+    }
+
+    function validateMapPool() {
+      const fmt = document.getElementById('format').value;
+      const maps = selectedMaps();
+      if (fmt === 'Bo1' && maps.length !== 1) {
+        return 'Bo1 requires exactly 1 selected map.';
+      }
+      if (fmt === 'Bo3' && maps.length > 3) {
+        return 'Bo3 allows up to 3 selected maps.';
+      }
+      if (fmt === 'Bo5' && maps.length > 5) {
+        return 'Bo5 allows up to 5 selected maps.';
+      }
+      if (maps.length < 1) {
+        return 'At least one map must be selected.';
+      }
+      return null;
+    }
+
+    document.getElementById('format').addEventListener('change', () => {
+      const selected = selectedMaps();
+      if (selected.length > (document.getElementById('format').value === 'Bo1' ? 1 : document.getElementById('format').value === 'Bo3' ? 3 : 5)) {
+        mapSelector.querySelectorAll('.map-btn.selected').forEach((btn, i) => {
+          const max = document.getElementById('format').value === 'Bo1' ? 1 : document.getElementById('format').value === 'Bo3' ? 3 : 5;
+          if (i >= max) btn.classList.remove('selected');
+        });
+      }
+      setSelectionLimit();
+    });
+
+    renderMapButtons();
+    setSelectionLimit();
+
+    document.getElementById('predictBtn').addEventListener('click', async () => {
+      const teamA = document.getElementById('teamA').value.split(',').map(s => s.trim()).filter((s) => s);
+      const teamB = document.getElementById('teamB').value.split(',').map(s => s.trim()).filter((s) => s);
+      const mapPool = selectedMaps();
+      const fmt = document.getElementById('format').value;
+      const stage = document.getElementById('stage').value;
+
+      if (teamA.length !== 5 || teamB.length !== 5) {
+        resultEl.innerHTML = '<p style="color: red;">Each team must have exactly 5 players.</p>';
+        return;
+      }
+      if (fmt === 'Bo1' && mapPool.length !== 1) {
+        resultEl.innerHTML = '<p style="color: red;">Bo1 requires exactly 1 map.</p>';
+        return;
+      }
+      if (fmt === 'Bo3' && mapPool.length > 3) {
+        resultEl.innerHTML = '<p style="color: red;">Bo3 max is 3 maps.</p>';
+        return;
+      }
+      if (fmt === 'Bo5' && mapPool.length > 5) {
+        resultEl.innerHTML = '<p style="color: red;">Bo5 max is 5 maps.</p>';
+        return;
+      }
+      if (mapPool.length < 1) {
+        resultEl.innerHTML = '<p style="color: red;">At least one map is required.</p>';
+        return;
+      }
+
+      resultEl.innerHTML = '<p>Loading prediction...</p>';
+      try {
+        const response = await fetch('http://127.0.0.1:8000/predict/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ team_a: teamA, team_b: teamB, map_pool: mapPool, format: fmt, stage: stage })
+        });
+        if (!response.ok) {
+          const e = await response.text();
+          resultEl.innerHTML = '<pre>Error: ' + response.status + '\n' + e + '</pre>';
+          return;
+        }
+        const data = await response.json();
+        resultEl.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+      } catch (err) {
+        resultEl.innerHTML = '<pre>Error: ' + err.message + '</pre>';
+      }
+    });
+  </script>
+</body>
+</html>

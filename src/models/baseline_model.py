@@ -15,6 +15,7 @@ from src.data.cleaner import VCTCleaner
 from src.scoring.individual_score import PlayerScorer
 from src.scoring.role_balance import RoleBalanceEngine
 from src.scoring.chemistry import ChemistryEngine
+from src.scoring.map_score import MapScoreEngine
 from src.models.prediction_engine import PredictionEngine
 
 
@@ -36,22 +37,33 @@ class BaselineModel:
 
     def __init__(self):
         self.model = xgb.XGBClassifier(
-            n_estimators=200,
-            max_depth=4,
-            learning_rate=0.05,
+            n_estimators=250,
+            max_depth=6,
+            learning_rate=0.1,
             eval_metric='logloss',
-            random_state=42
+            random_state=42,
+            use_label_encoder=False
         )
         self.feature_cols = [f'{c}_diff' for c in FEATURE_COLS]
 
     # ------------------------------------------------------------------
     # Step A: Aggregate 5 players → one team row per match
     # ------------------------------------------------------------------
-    def build_team_features(self, scored_df: pd.DataFrame) -> pd.DataFrame:
+    def build_team_features(self, scored_df: pd.DataFrame, map_score_engine: MapScoreEngine = None) -> pd.DataFrame:
         """
         Groups scored player rows by (Match Name, Team, Year) and
         produces aggregated team-level statistics.
         """
+        # optionally compute per-player map score with map engine
+        if map_score_engine is not None and 'Player' in scored_df.columns and 'Map' in scored_df.columns:
+            scored_df = scored_df.copy()
+            scored_df['player_map_score'] = scored_df.apply(
+                lambda row: map_score_engine.get_player_map_score(row['Player'], row['Map'])['map_score'],
+                axis=1
+            )
+        else:
+            scored_df['player_map_score'] = 50.0
+
         team_agg = (
             scored_df
             .groupby(['Match Name', 'Team', 'Year'])
@@ -63,6 +75,7 @@ class BaselineModel:
                 entry_mean = ('Entry_Success',    'mean'),
                 util_mean  = ('Utility_Score',    'mean'),
                 eco_mean   = ('Economic_Score',   'mean'),
+                map_score  = ('player_map_score', 'mean'),
             )
             .reset_index()
         )
@@ -273,8 +286,12 @@ if __name__ == "__main__":
     scorer    = PlayerScorer()
     scored_df = scorer.compute_overall_score(clean_df)
 
+    # Map score engine from Step 4 – used to generate map_score feature per player-team
+    map_engine = MapScoreEngine()
+    map_engine.build(clean_df, maps_scores)
+
     pipeline  = BaselineModel()
-    team_agg  = pipeline.build_team_features(scored_df)
+    team_agg  = pipeline.build_team_features(scored_df, map_score_engine=map_engine)
     model_df  = pipeline.build_match_dataset(team_agg, scores_df)
     print(f"Dataset: {len(model_df)} match rows")
 
