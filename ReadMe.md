@@ -1,6 +1,10 @@
 # 🎯 VALORANT AI Analytics Platform
 ### Match Prediction, Roster Intelligence & Simulation System
 
+> **🟢 CURRENT PROJECT STATUS**
+> * **[✅ COMPLETED] Module 1 (Match Prediction Engine):** The data pipeline, historical XGBoost prediction engine, FastAPI backend, and dynamic Frontend UI are fully implemented and operational.
+> * **[🛠️ IN PROGRESS] Module 2 (Roster Transfer Impact):** Currently architecting the simulation engine to evaluate the performance swing of theoretical roster changes.
+
 ---
 
 ## 🧠 Overview
