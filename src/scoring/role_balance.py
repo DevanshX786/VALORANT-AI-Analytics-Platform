@@ -2,25 +2,42 @@ import pandas as pd
 
 
 # ------------------------------------------------------------------
-# Agent role ontology (VCT 2021-2025 + current meta)
+# Agent role ontology (VCT current meta, 30 agents)
 # ------------------------------------------------------------------
-AGENT_ROLE_MAP = {
-    'duelist': {
-        'jett', 'reyna', 'raze', 'phoenix', 'neon', 'yoru', 'soul', 'fade', 'killjoy'  # keep mostly duelist
-    },
-    'initiator': {
-        'sova', 'breach', 'skye', 'kayo', 'breathe', 'fade', 'xaeco'  # optional placeholders
-    },
-    'controller': {
-        'omen', 'viper', 'brimstone', 'astra', 'harbor', 'hannibal'  # roles may vary, static mapping
-    },
-    'sentinel': {
-        'sage', 'killjoy', 'chamber', 'cypher', 'deadlock', 'peror'  # includes Sentinel-like arms
-    },
-    'flex': {
-        'kayo', 'harbor', 'sova', 'omen', 'viper', 'astra', 'fade', 'neon', 'yoru'  # all-rounders
-    }
+FULL_AGENT_POOL = {
+    'brimstone','viper','omen','astra','harbour','clove','miks',
+    'phoenix','jett','reyna','raze','yoru','neon','iso','waylay',
+    'sova','breach','skye','kayo','fade','gekko','tejo',
+    'killjoy','cypher','sage','chamber','deadlock','vyse','veto'
 }
+
+AGENT_ROLE_MAP = {
+    'duelist': {'phoenix', 'jett', 'reyna', 'raze', 'yoru', 'neon', 'iso', 'waylay'},
+    'initiator': {'sova', 'breach', 'skye', 'kayo', 'fade', 'gekko', 'tejo'},
+    'controller': {'brimstone', 'viper', 'omen', 'astra', 'harbour', 'clove', 'miks'},
+    'sentinel': {'killjoy', 'cypher', 'sage', 'chamber', 'deadlock', 'vyse', 'veto'},
+    'flex': {'neon', 'yoru', 'kayo', 'fade', 'gekko', 'tejo', 'harbour', 'miks', 'clove', 'deadlock', 'vyse', 'veto'}
+}
+
+# map known variants to canonical names (including spelling variants from raw data)
+AGENT_CANONICAL_ALIAS = {
+    'harbor': 'harbour',
+    'harbore': 'harbour',
+    'soul': 'iso',
+    'hbir': 'harbour',
+    'ovrd': 'veto',
+    'kaio': 'kayo',
+}
+
+ROLE_AGENT_STARS = {
+    'duelist': {'jett', 'raze', 'neon', 'reyna'},
+    'initiator': {'sova', 'breach', 'skye'},
+    'controller': {'omen', 'viper', 'brimstone'},
+    'sentinel': {'sage', 'killjoy', 'chamber'},
+    'flex': {'kayo', 'astra', 'harbour', 'fade'}
+}
+
+REQUIRED_ROLES = {'duelist', 'initiator', 'controller', 'sentinel'}
 
 # Role champions (highly optimal picks used for extra bonus)
 ROLE_STAR_AGENTS = {
@@ -37,6 +54,8 @@ REQUIRED_ROLES = {'duelist', 'initiator', 'controller', 'sentinel', 'flex'}
 class RoleBalanceEngine:
     """Computes a role coverage/fit score for teams based on roster agents."""
 
+    _known_unknown_agents = set()
+
     def __init__(self):
         pass
 
@@ -44,20 +63,25 @@ class RoleBalanceEngine:
     def normalize_agent_name(agent_name: str) -> str:
         if not isinstance(agent_name, str):
             return ''
-        return agent_name.strip().lower().replace(' ', '')
+        return agent_name.strip().lower().replace(' ', '').replace('-', '')
+
+    def canonical_agent_name(self, agent_name: str) -> str:
+        key = self.normalize_agent_name(agent_name)
+        if key in AGENT_CANONICAL_ALIAS:
+            return AGENT_CANONICAL_ALIAS[key]
+        return key
 
     def assign_role(self, agent_name: str) -> str:
         """Return canonical role for an agent, or 'flex' for unknown/ambiguous agents."""
-        agent_key = self.normalize_agent_name(agent_name)
+        agent_key = self.canonical_agent_name(agent_name)
         if not agent_key:
             return 'flex'
 
-        # exact match from predefined map
         for role, agents in AGENT_ROLE_MAP.items():
             if agent_key in agents:
                 return role
 
-        return 'flex'
+        return 'flex'  # unknown agent treated as flex by default
 
     def compute_team_role_balance(self, agents: list) -> float:
         """Compute team role balance score 0-100 by role coverage + star agent bonuses."""
@@ -66,6 +90,19 @@ class RoleBalanceEngine:
 
         roles = [self.assign_role(a) for a in agents if isinstance(a, str)]
         unique_roles = set(roles)
+
+        # unknown agent namespace diagnostics (help for raw DB mapping)
+        unknown_agents = set()
+        for agent in agents:
+            canonical = self.canonical_agent_name(agent)
+            if canonical and canonical not in FULL_AGENT_POOL:
+                unknown_agents.add(agent)
+
+        if unknown_agents:
+            new_unknown = unknown_agents - self._known_unknown_agents
+            if new_unknown:
+                self._known_unknown_agents.update(new_unknown)
+                print(f"[RoleBalance] warning: unknown agent names detected: {sorted(new_unknown)}")
 
         # role coverage component
         covered = unique_roles.intersection(REQUIRED_ROLES)
@@ -80,9 +117,10 @@ class RoleBalanceEngine:
 
         # star agent bonus
         star_bonus = 0
-        for role, star_agents in ROLE_STAR_AGENTS.items():
+        for role, star_agents in ROLE_AGENT_STARS.items():
             for agent in agents:
-                if self.assign_role(agent) == role and self.normalize_agent_name(agent) in star_agents:
+                normalized = self.canonical_agent_name(agent)
+                if self.assign_role(agent) == role and normalized in star_agents:
                     star_bonus += 3
 
         # cap and normalize

@@ -21,11 +21,13 @@
   <h1>VALORANT AI Match Predictor</h1>
   <p>Enter teams and match context, then run the model with backend API at <code>http://127.0.0.1:8000</code>.</p>
 
-  <label>Team A (comma-separated 5 players)</label>
-  <textarea id="teamA" rows="2">aspas,t3xture,Karon,Lakia,Meteor</textarea>
+  <label>Team A</label>
+  <select id="teamA"></select>
+  <small id="teamAPlayers" style="display:block; margin-bottom:0.7rem; color:#444;">Select team A to load players</small>
 
-  <label>Team B (comma-separated 5 players)</label>
-  <textarea id="teamB" rows="2">TenZ,rush,zombs,nitr0,shahzam</textarea>
+  <label>Team B</label>
+  <select id="teamB"></select>
+  <small id="teamBPlayers" style="display:block; margin-bottom:0.7rem; color:#444;">Select team B to load players</small>
 
   <label>Map Pool (select from Valorant maps)</label>
   <div id="mapSelector" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem; margin-bottom:1rem;"></div>
@@ -41,8 +43,10 @@
 
   <h2>Result</h2>
   <div id="result">No prediction yet.</div>
+  <p id="teamDescriptions" style="color:#555;">Loading team rosters...</p>
 
   <script>
+    const API_BASE = new URLSearchParams(window.location.search).get('api') || 'http://127.0.0.1:8005';
     const VALORANT_MAPS = ['bind','haven','split','pearl','ascent','icebox','breeze','fracture','lotus','sunset','abyss','corrode'];
     const mapSelector = document.getElementById('mapSelector');
     const resultEl = document.getElementById('result');
@@ -116,6 +120,86 @@
       return null;
     }
 
+    function setTeamSelectors(teams) {
+      const selA = document.getElementById('teamA');
+      const selB = document.getElementById('teamB');
+      selA.innerHTML = '<option value="">-- select team --</option>';
+      selB.innerHTML = '<option value="">-- select team --</option>';
+      teams.forEach((team) => {
+        const oA = document.createElement('option'); oA.value = team; oA.text = team; selA.appendChild(oA);
+        const oB = document.createElement('option'); oB.value = team; oB.text = team; selB.appendChild(oB);
+      });
+    }
+
+    const FALLBACK_ROSTERS = {
+      'Sentinels': ['TenZ','shahzam','zombs','nitr0','dapr'],
+      'Liquid': ['aspas','t3xture','Karon','Lakia','Meteor'],
+      '100 Thieves': ['derke','yay','envy','Mistic','SicK'],
+      'FaZe': ['frozen','f0rsakeN','sacy','nAts','Derrek']
+    };
+
+    async function loadTeams() {
+      try {
+        const r = await fetch(`${API_BASE}/rosters`);
+        if (!r.ok) {
+          throw new Error('Unable to load rosters: ' + r.status);
+        }
+        const data = await r.json();
+        setTeamSelectors(data.teams);
+        document.getElementById('teamDescriptions').textContent = 'Loaded ' + data.teams.length + ' teams from /rosters ('+API_BASE+')';
+        window.TEAM_ROSTERS = data.rosters;
+        return;
+      } catch (err) {
+        console.warn('API roster load failed:', err);
+      }
+
+      try {
+        const csv = await fetch('tier1_rosters.csv');
+        const text = await csv.text();
+        const lines = text.trim().split(/\r?\n/);
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const teamIdx = headers.indexOf('team_name');
+        const playerIdx = headers.indexOf('player_name');
+        if (teamIdx >= 0 && playerIdx >= 0) {
+          const rosters = {};
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',');
+            const team = cols[teamIdx]?.trim();
+            const player = cols[playerIdx]?.trim();
+            if (!team || !player) continue;
+            rosters[team] = rosters[team] || [];
+            if (!rosters[team].includes(player) && rosters[team].length < 5) {
+              rosters[team].push(player);
+            }
+          }
+          if (Object.keys(rosters).length > 0) {
+            window.TEAM_ROSTERS = rosters;
+            setTeamSelectors(Object.keys(rosters));
+            document.getElementById('teamDescriptions').textContent = 'Loaded ' + Object.keys(rosters).length + ' teams from tier1_rosters.csv';
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Local CSV roster load failed:', err);
+      }
+
+      document.getElementById('teamDescriptions').textContent = 'Using fallback rosters; please start API or ensure tier1_rosters.csv is accessible.';
+      window.TEAM_ROSTERS = FALLBACK_ROSTERS;
+      setTeamSelectors(Object.keys(FALLBACK_ROSTERS));
+    }
+
+    function showTeamPlayers(teamId, outputId) {
+      const output = document.getElementById(outputId);
+      if (!teamId || !window.TEAM_ROSTERS || !window.TEAM_ROSTERS[teamId]) {
+        output.textContent = 'No team selected.';
+        return;
+      }
+      output.textContent = 'Players: ' + window.TEAM_ROSTERS[teamId].join(', ');
+    }
+
+    document.getElementById('teamA').addEventListener('change', (e) => showTeamPlayers(e.target.value, 'teamAPlayers'));
+    document.getElementById('teamB').addEventListener('change', (e) => showTeamPlayers(e.target.value, 'teamBPlayers'));
+
     document.getElementById('format').addEventListener('change', () => {
       const selected = selectedMaps();
       if (selected.length > (document.getElementById('format').value === 'Bo1' ? 1 : document.getElementById('format').value === 'Bo3' ? 3 : 5)) {
@@ -130,15 +214,27 @@
     renderMapButtons();
     setSelectionLimit();
 
+    loadTeams();
+
     document.getElementById('predictBtn').addEventListener('click', async () => {
-      const teamA = document.getElementById('teamA').value.split(',').map(s => s.trim()).filter((s) => s);
-      const teamB = document.getElementById('teamB').value.split(',').map(s => s.trim()).filter((s) => s);
+      const teamAId = document.getElementById('teamA').value;
+      const teamBId = document.getElementById('teamB').value;
+      const teamA = (window.TEAM_ROSTERS && window.TEAM_ROSTERS[teamAId]) ? window.TEAM_ROSTERS[teamAId] : [];
+      const teamB = (window.TEAM_ROSTERS && window.TEAM_ROSTERS[teamBId]) ? window.TEAM_ROSTERS[teamBId] : [];
       const mapPool = selectedMaps();
       const fmt = document.getElementById('format').value;
       const stage = document.getElementById('stage').value;
 
+      if (!teamAId || !teamBId) {
+        resultEl.innerHTML = '<p style="color: red;">Please select both teams.</p>';
+        return;
+      }
+      if (teamAId === teamBId) {
+        resultEl.innerHTML = '<p style="color: red;">Team A and Team B must be different.</p>';
+        return;
+      }
       if (teamA.length !== 5 || teamB.length !== 5) {
-        resultEl.innerHTML = '<p style="color: red;">Each team must have exactly 5 players.</p>';
+        resultEl.innerHTML = '<p style="color: red;">Each selected team must have exactly 5 players in the roster.</p>';
         return;
       }
       if (fmt === 'Bo1' && mapPool.length !== 1) {

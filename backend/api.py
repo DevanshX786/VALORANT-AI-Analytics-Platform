@@ -87,10 +87,93 @@ if os.path.exists(model_path):
 else:
     raise RuntimeError('Trained model file not found: ' + model_path)
 
+# ------------------------------------------------------------------
+# Load current roster table (tier1_rosters.csv) and mapping helpers
+# ------------------------------------------------------------------
+TIER1_ROSTERS_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'tier1_rosters.csv')
+
+
+def _load_tier1_rosters() -> pd.DataFrame:
+    if not os.path.exists(TIER1_ROSTERS_PATH):
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(TIER1_ROSTERS_PATH, encoding='latin1', keep_default_na=False)
+    except Exception:
+        return pd.read_csv(TIER1_ROSTERS_PATH, encoding='utf-8', errors='ignore', keep_default_na=False)
+
+
+tier1_rosters_df = _load_tier1_rosters()
+
+# roster_lookup maps lowercase name/id -> canonical player_name
+roster_lookup: Dict[str, str] = {}
+for _, r in tier1_rosters_df.iterrows():
+    player_name = str(r.get('player_name', '')).strip()
+    if player_name:
+        roster_lookup[player_name.lower()] = player_name
+    # player_id(s)
+    for id_col in ['player_id', 'player_id_mapped', 'mapped_ids']:
+        if id_col in r and r[id_col] not in [None, '', float('nan')]:
+            ids = str(r[id_col]).split(',')
+            for id_val in ids:
+                clean_id = str(id_val).strip()
+                if clean_id:
+                    roster_lookup[clean_id.lower()] = player_name
+
+# map all existing participants to lowercase normalization
+player_summary_lower = {p.lower(): p for p in player_summary.index}
+
+
+def resolve_player_name(player_identifier: str) -> Optional[str]:
+    if player_identifier is None:
+        return None
+    ident = str(player_identifier).strip()
+    if not ident:
+        return None
+
+    # exact dictionary key
+    if ident in player_summary.index:
+        return ident
+
+    key = ident.lower()
+    if key in player_summary_lower:
+        return player_summary_lower[key]
+    if key in roster_lookup:
+        return roster_lookup[key]
+
+    # numeric conflict or extra characters
+    if key.isdigit() and key in roster_lookup:
+        return roster_lookup[key]
+
+    return None
+
+
+def get_current_roster_by_team(team_name: str) -> List[str]:
+    if not team_name:
+        return []
+
+    # prefer CSV roster if available
+    if not tier1_rosters_df.empty:
+        team_tb = tier1_rosters_df[tier1_rosters_df['team_name'].astype(str).str.lower() == team_name.lower()]
+        if not team_tb.empty:
+            return [str(x).strip() for x in team_tb['player_name'] if str(x).strip()]
+
+    # If tier1_rosters.csv has no matching team, return empty roster
+    return []
+
+
+def get_all_current_rosters() -> Dict[str, List[str]]:
+    if not tier1_rosters_df.empty:
+        grouped = tier1_rosters_df.groupby(tier1_rosters_df['team_name'].astype(str).str.strip().str.title())['player_name']
+        return {team: [str(p).strip() for p in players if str(p).strip()] for team, players in grouped}
+
+    # No static fallback roster; rely entirely on tier1_rosters.csv source
+    return {}
+
 
 def _get_player_stats(name: str) -> Dict[str, float]:
-    if name in player_summary.index:
-        row = player_summary.loc[name]
+    resolved_name = resolve_player_name(name)
+    if resolved_name and resolved_name in player_summary.index:
+        row = player_summary.loc[resolved_name]
         return {
             'mech_mean': float(row['mech_mean']),
             'clutch_mean': float(row['clutch_mean']),
@@ -99,6 +182,7 @@ def _get_player_stats(name: str) -> Dict[str, float]:
             'eco_mean': float(row['eco_mean']),
             'consistency_mean': float(row['consistency_mean']),
         }
+
     # fallback neutral values if player not found
     return {
         'mech_mean': 50.0,
@@ -114,8 +198,17 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
     # avoid repeats; keep 5 players as provided
     players = list(dict.fromkeys(players))[:5]
 
+    # resolve by name/id mapping
+    resolved_players = []
+    for p in players:
+        resolved = resolve_player_name(p)
+        if resolved:
+            resolved_players.append(resolved)
+        else:
+            resolved_players.append(str(p).strip())
+
     # aggregate per-player features
-    per_player = [_get_player_stats(p) for p in players]
+    per_player = [_get_player_stats(p) for p in resolved_players]
     mech_values = [p['mech_mean'] for p in per_player]
 
     team_features = {
@@ -127,9 +220,9 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
         'util_mean': float(np.mean([p['util_mean'] for p in per_player])),
         'eco_mean': float(np.mean([p['eco_mean'] for p in per_player])),
         'consistency': float(np.mean([p['consistency_mean'] for p in per_player])),
-        'map_score': float(map_engine.get_team_map_score(players, map_name)),
-        'chemistry': float(chem_engine.get_team_chemistry_score(players)),
-        'role_balance': float(role_engine.compute_team_role_balance([agent_lookup.get(p, 'Unknown') for p in players])),
+        'map_score': float(map_engine.get_team_map_score(resolved_players, map_name)),
+        'chemistry': float(chem_engine.get_team_chemistry_score(resolved_players)),
+        'role_balance': float(role_engine.compute_team_role_balance([agent_lookup.get(p, 'Unknown') for p in resolved_players])),
     }
 
     return team_features
@@ -213,6 +306,12 @@ def players_search(q: str = Query(..., min_length=1, max_length=50), limit: int 
     return {'query': q, 'results': candidates[:limit]}
 
 
+@app.get('/rosters')
+def get_rosters():
+    rosters = get_all_current_rosters()
+    return {'teams': list(rosters.keys()), 'rosters': rosters}
+
+
 @app.get('/player/{name}')
 def player_detail(name: str):
     if name not in player_summary.index:
@@ -237,13 +336,65 @@ def player_detail(name: str):
     return res
 
 
-# Module 1: current roster forecasting endpoint (hardcoded roster list for MVP)
-CURRENT_ROSTERS = {
-    'Sentinels': ['TenZ', 'shahzam', 'zombs', 'nitr0', 'dapr'],
-    'Liquid': ['aspas', 't3xture', 'Karon', 'Lakia', 'Meteor'],
-    '100 Thieves': ['derke', 'yay', 'envy', 'Mistic', 'SicK'],
-    'FaZe': ['frozen', 'f0rsakeN', 'sacy', 'nAts', 'Derrek'],
-}
+# Module 1: current roster forecasting endpoint (tier1_rosters.csv source + fallback hardcoded)
+
+
+@app.get('/predict/team-vs-team')
+def predict_team_vs_team(
+    team_a: str = Query(..., min_length=1),
+    team_b: str = Query(..., min_length=1),
+    format: str = Query('Bo3', regex='^(Bo1|Bo3|Bo5)$'),
+    stage: str = 'Group',
+    map_pool: Optional[List[str]] = Query(None)
+):
+    if map_pool is None or len(map_pool) == 0:
+        map_pool = ['Ascent', 'Bind', 'Haven']
+
+    if format == 'Bo1' and len(map_pool) != 1:
+        raise HTTPException(status_code=400, detail='Bo1 requires exactly 1 map in map_pool.')
+    if format == 'Bo3' and len(map_pool) > 3:
+        raise HTTPException(status_code=400, detail='Bo3 allows at most 3 maps.')
+    if format == 'Bo5' and len(map_pool) > 5:
+        raise HTTPException(status_code=400, detail='Bo5 allows at most 5 maps.')
+
+    rosters = get_all_current_rosters()
+    normalized = {k.lower(): v for k, v in rosters.items()}
+
+    team_a_key = team_a.strip().lower()
+    team_b_key = team_b.strip().lower()
+
+    if team_a_key not in normalized:
+        raise HTTPException(status_code=404, detail=f'Team A not found: {team_a}')
+    if team_b_key not in normalized:
+        raise HTTPException(status_code=404, detail=f'Team B not found: {team_b}')
+    if team_a_key == team_b_key:
+        raise HTTPException(status_code=400, detail='Team A and Team B must be different.')
+
+    team_a_roster = normalized[team_a_key][:5]
+    team_b_roster = normalized[team_b_key][:5]
+
+    if len(team_a_roster) != 5 or len(team_b_roster) != 5:
+        raise HTTPException(status_code=400, detail='Both teams must have exactly 5 players in roster.')
+
+    req = MatchPredictRequest(
+        team_a=team_a_roster,
+        team_b=team_b_roster,
+        map_pool=map_pool,
+        format=format,
+        stage=stage
+    )
+    prediction = predict_match(req)
+
+    return {
+        'team_a': team_a,
+        'team_b': team_b,
+        'team_a_roster': team_a_roster,
+        'team_b_roster': team_b_roster,
+        'format': format,
+        'stage': stage,
+        'map_pool': map_pool,
+        **prediction
+    }
 
 
 @app.get('/predict/current-rosters')
@@ -258,12 +409,16 @@ def predict_current_rosters(format: str = Query('Bo3', regex='^(Bo1|Bo3|Bo5)$'),
     if format == 'Bo5' and len(map_pool) > 5:
         raise HTTPException(status_code=400, detail='Bo5 allows at most 5 maps.')
 
-    teams = list(CURRENT_ROSTERS.keys())
+    teams = list(get_all_current_rosters().keys())
+    rosters = get_all_current_rosters()
     matchups = []
 
     for team_a, team_b in itertools.combinations(teams, 2):
-        team_a_roster = CURRENT_ROSTERS[team_a]
-        team_b_roster = CURRENT_ROSTERS[team_b]
+        team_a_roster = rosters.get(team_a, [])[:5]
+        team_b_roster = rosters.get(team_b, [])[:5]
+
+        if len(team_a_roster) != 5 or len(team_b_roster) != 5:
+            continue
 
         # existing endpoint logic reuse
         req = MatchPredictRequest(team_a=team_a_roster, team_b=team_b_roster, map_pool=map_pool, format=format, stage=stage)

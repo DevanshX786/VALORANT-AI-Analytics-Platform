@@ -257,7 +257,39 @@ WHY: Players perform very differently across maps. aspas on Ascent (66% win rate
     def_advantage = player def_win_rate - 0.49 (global T1 defense baseline)
 
   Output: 12,746 players profiled across 13 VCT maps
+
+------------------------------------------------------------------------
+STEP 4.1 - Agent role mapping auto-discovery (src/scoring/role_balance.py)
+------------------------------------------------------------------------
+WHY: Raw agent strings in matches may vary (spellings, capitalization, old placeholders).
+
+  New improvements:
+    - canonical agent pool includes 30 VALORANT agents in current meta.
+    - from raw input names, normalize with lower-case, strip, no spaces/hyphens.
+    - alias map resolves known variants: harbor->harbour, soul->iso, etc.
+    - unknown names print warnings and are treated as flex for safety.
+    - role coverage still enforces duelist/initiator/controller/sentinel plus flex.
+
 NEXT STEP: Proceed to Step 9 (backend API) and Step 10 (frontend deployment).
+
+------------------------------------------------------------------------
+STEP 9.1 - FastAPI team roster endpoint for frontend
+------------------------------------------------------------------------
+  - Added /rosters endpoint in backend/api.py returning full team list and player arrays
+  - UI now fetches /rosters on load and populates Team A/Team B dropdowns
+
+STEP 10 - Basic frontend test harness (frontend/index.html)
+------------------------------------------------------------------------
+  - Team selector screens from roster endpoint
+    * UI now fetches /rosters
+    * Team A and Team B dropdowns auto-populated
+    * team players displayed below each selection
+  - Map selector cards with Bo1/Bo3/Bo5 validation
+  - Stage selector
+  - Predict button POSTs to /predict/match and displays structured JSON
+  - Dropdown selection fixed: predict reads players from window.TEAM_ROSTERS instead of comma input
+  - Added local fallback rosters in frontend so UI works even when /rosters fails
+
   Step 9: implement FastAPI endpoints in `backend/api.py`:
     - POST /predict/match
     - GET /players/search
