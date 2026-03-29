@@ -159,6 +159,22 @@ class MapScoreEngine:
         ) * 100   # scale to readable range
 
         self._player_map_table = result.set_index(['Player', 'Map'])
+        
+        # Calculate 25th percentile map floor for rookies to prevent 0-affinity crash
+        self._map_rookie_floor = result.groupby('Map')['map_score'].quantile(0.25).to_dict()
+        
+        # Load verified rookies from tier1_rosters
+        import os
+        rosters_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'raw', 'tier1_rosters.csv')
+        self._rookies = set()
+        if os.path.exists(rosters_path):
+            try:
+                r_df = pd.read_csv(rosters_path)
+                if 'rookie_flag' in r_df.columns:
+                    self._rookies = set(r_df[r_df['rookie_flag'] == 1]['player_name'].astype(str).str.strip().str.lower())
+            except Exception:
+                pass
+        
         print(f"[MapScore] Built profiles for {len(result['Player'].unique()):,} players across {len(result['Map'].unique())} maps.")
         return self._player_map_table
 
@@ -180,12 +196,21 @@ class MapScoreEngine:
                 'appearances':   int(row.get('map_appearances', 0)),
             }
         except KeyError:
-            # Player never appeared on this map — return neutral defaults
-            return {
-                'map_score': 0.0, 'map_acs': 0.0, 'map_kd': 1.0,
-                'win_rate': 0.5,  'atk_advantage': 0.0, 'def_advantage': 0.0,
-                'appearances': 0,
-            }
+            if player.lower() in getattr(self, '_rookies', set()):
+                # Rookie — apply protective 25th percentile map score floor
+                rookie_floor = getattr(self, '_map_rookie_floor', {}).get(map_name_clean, 10.0)
+                return {
+                    'map_score': round(float(rookie_floor), 3), 'map_acs': 180.0, 'map_kd': 0.85,
+                    'win_rate': 0.45,  'atk_advantage': 0.0, 'def_advantage': 0.0,
+                    'appearances': 0,
+                }
+            else:
+                # Discovered veteran without map appearance — return strict 0-floor
+                return {
+                    'map_score': 0.0, 'map_acs': 0.0, 'map_kd': 1.0,
+                    'win_rate': 0.5,  'atk_advantage': 0.0, 'def_advantage': 0.0,
+                    'appearances': 0,
+                }
 
     def get_team_map_score(self, players: list, map_name: str) -> float:
         """Average map_score across all 5 players for a given map."""

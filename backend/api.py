@@ -140,6 +140,11 @@ def resolve_player_name(player_identifier: str) -> Optional[str]:
     if not ident:
         return None
 
+    # Dataset Imposter Override: intercept 'f0rsaken' so it skips the dummy Sova account in the index 
+    # and properly locks onto the Jett/Flex PRX superstar 'f0rsakeN'
+    if ident.lower() == 'f0rsaken':
+        return 'f0rsakeN'
+
     # exact dictionary key
     if ident in player_summary.index:
         return ident
