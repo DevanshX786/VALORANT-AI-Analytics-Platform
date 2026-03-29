@@ -1,2 +1,0 @@
-Resolved: 'f0rsakeN'
-Score: {"map_score": 30.742, "map_acs": 198.6, "map_kd": 1.1, "win_rate": 0.6, "atk_advantage": 0.019, "def_advantage": 0.007, "appearances": 183}
