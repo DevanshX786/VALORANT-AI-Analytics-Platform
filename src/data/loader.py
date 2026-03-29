@@ -73,6 +73,19 @@ class VCTDataLoader:
             return pd.DataFrame()
         return pd.concat(dfs, ignore_index=True)
 
+    def load_maps_scores(self) -> pd.DataFrame:
+        """Loads and concatenates matches/maps_scores.csv from all years."""
+        dfs = []
+        for year in self.years:
+            path = os.path.join(self.data_dir, year, "matches", "maps_scores.csv")
+            df = self._read_csv_safe(path)
+            if not df.empty:
+                df['Year'] = year[-4:]
+                dfs.append(df)
+        if not dfs:
+            return pd.DataFrame()
+        return pd.concat(dfs, ignore_index=True)
+
 if __name__ == "__main__":
     loader = VCTDataLoader()
     print("Testing loader...")

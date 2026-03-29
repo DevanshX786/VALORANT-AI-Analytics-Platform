@@ -1,0 +1,390 @@
+================================================================================
+VALORANT AI ANALYTICS PLATFORM - MASTER WORK LOG
+================================================================================
+Last Updated: 2026-03-29
+Project:  ML platform that predicts VALORANT match outcomes using dynamic,
+          roster-aware player scoring across 5 years of VCT data (2021-2025).
+
+Core Innovation:  Player scores travel WITH the player, not the team.
+                  Roster changes trigger chemistry penalties. Predictions
+                  update dynamically based on who is actually playing.
+
+Dataset:   Kaggle VCT Champion Tour 2021-2025 (~1.3 GB, 882,930 clean rows)
+Tech Stack: Python + Pandas + XGBoost | FastAPI Backend | React Frontend
+================================================================================
+
+
+================================================================================
+SYSTEM ARCHITECTURE
+================================================================================
+
+  Player Data --> Player Scores --> Team Strength --> Context --> Prediction
+                                                          |
+                              Chemistry + Map + Role Balance + Format + Stage
+
+MODULE 1 - Match Prediction Engine          [CURRENT - Build and Deploy First]
+MODULE 2 - Roster Change Impact Analysis    [PENDING]
+MODULE 3 - Player Intelligence System       [PENDING]
+MODULE 4 - Agent Recommendation System      [PENDING]
+MODULE 5 - Custom Match Simulator           [PENDING]
+
+
+================================================================================
+MODULE 1: MATCH PREDICTION ENGINE
+================================================================================
+
+GOAL:
+  Given Team A (5 players) + Team B (5 players) + Map Pool + Format (Bo1/Bo3/Bo5),
+  predict the match winner with a full breakdown of WHY and by HOW MUCH.
+
+INPUT:
+  - Team A: 5 player names
+  - Team B: 5 player names
+  - Map pool (2-7 maps)
+  - Match format: Bo1 / Bo3 / Bo5
+  - Time window: last 6 months / 1 year / all time
+
+FULL PIPELINE (10 Steps):
+  Step 1  -> Individual player scores (7 pillars) for all 10 players
+  Step 2  -> Aggregate 5 players into team-level strength features
+  Step 3  -> Apply team chemistry modifier
+  Step 4  -> Apply map performance + side tendency adjustment
+  Step 5  -> Apply role balance modifier
+  Step 6  -> Apply match format modifier (Bo1 / Bo3 / Bo5)
+  Step 7  -> Apply tournament stage modifier (Group Stage / Playoffs)
+  Step 8  -> Feed into XGBoost model -> Win Probability %
+  Step 9  -> Serve via FastAPI backend
+  Step 10 -> Visualize on React frontend -> Deploy
+
+EXPECTED OUTPUT:
+  - Win probability % per team
+  - Player matchup analysis (who wins their lane)
+  - Map-by-map odds across the pool
+  - Recommended map bans per team
+  - Key driving factors ("Team A has +15% chemistry advantage on Ascent")
+
+
+================================================================================
+MODULE 1 - WORK COMPLETED
+================================================================================
+
+------------------------------------------------------------------------
+STEP 1A - Data Pipeline  (src/data/)
+------------------------------------------------------------------------
+WHY: Raw Kaggle data is split across 5 year folders with naming bugs and
+     missing Chinese event records. Must merge and filter safely before scoring.
+
+  loader.py
+    - Reads overview.csv, kills_stats.csv, scores.csv across all 5 year folders
+    - Stitches them into unified DataFrames with a Year column
+    - Uses keep_default_na=False to avoid treating player named "nan" as null
+
+  cleaner.py
+    - Drops 151 matches with entirely missing stats (Chinese events, no API)
+    - Fills null event columns (2k, 1v1, Spike Plants) with 0
+      WHY: null = event never happened, not that the data is missing
+    - Drops rows where Team == "TBD" (placeholder, not a real team)
+
+  resolver.py
+    - Blueprint for joining on numeric IDs from all_ids/ folder
+    WHY: Two teams named "Exotic" exist (IDs 4964 and 1301, different years).
+         Two teams abbreviated "TP" exist (Typhoon and Typhone).
+         Joining on string names creates silent data collisions.
+
+------------------------------------------------------------------------
+STEP 1B - Individual Player Scoring  (src/scoring/individual_score.py)
+------------------------------------------------------------------------
+WHY: Need a numeric skill score that travels with the player across teams
+     and seasons. Scores are computed per map appearance then aggregated.
+
+  PILLAR 1 - MECHANICAL SCORE (raw fragging power)
+    Formula:  (ACS * 0.45) + ((Kills / Deaths) * 30) + ((2k*2 + 3k*3 + 4k*4 + 5k*5) * 2)
+    Weights:
+      ACS * 0.45      -> holistic combat (includes damage + multi-kill bonuses)
+      K/D * 30        -> pure kill efficiency vs deaths
+      Multi-kill * 2  -> exponential difficulty bonus (5k=10, 4k=8, 3k=6, 2k=4)
+    Why multi-kill exponential: back-to-back frags in one round are far harder
+    than sequential frags across multiple rounds.
+    Validated: Zyppan (NaVi) = 750.95 - identified as top mechanical performer 2024
+
+  PILLAR 2 - CLUTCH SCORE (performing under pressure)
+    Formula:  (1v1 * 1) + (1v2 * 2) + (1v3 * 4) + (1v4 * 8) + (1v5 * 15)
+    Why exponential: statistically, surviving a 1v5 is ~30x harder than a 1v1.
+    Linear weighting would undervalue game-winning moments.
+    Validated: Karon (Gen.G) = 17.0 - correctly identified as #1 clutch player 2024
+
+  PILLAR 3 - ENTRY SUCCESS (opening duel efficiency)
+    Formula:  (FK / (FK + FD) * 100) + FKD
+              FK = First Kills, FD = First Deaths, FKD = FK - FD differential
+    Why: A player who opens 11 rounds and dies 0 times is creating massive
+    structural advantages. The ratio rewards consistency, FKD rewards volume.
+    Validated: aspas (Leviatan) = 111.0 with 11 FK, 0 FD - correctly #1 entry 2024
+
+  PILLAR 4 - UTILITY SCORE (support and objective impact)
+    Formula:  Assists + (Spike Plants * 0.5) + (Spike Defuses * 0.5)
+    Why: Controllers and Sentinels create value through assists and obiective play,
+    not raw kills. Without this pillar, support players rank artificially low.
+
+  PILLAR 5 - ECONOMIC EFFICIENCY
+    Formula:  Econ_Rating * 10
+    Note: Econ Rating = damage dealt per 1000 credits spent (from kills_stats.csv)
+    Why: A player winning eco rounds is creating economy advantages worth 2-3 full
+    buy rounds downstream. Critical for team-level predictions.
+
+  PILLAR 6 - CONSISTENCY SCORE (variance punishment)
+    Formula:  (1 / (rolling_std(Rating, window=15) + 0.1)) * 10
+    Method:
+      1. Group all records by Player name
+      2. Sort each player group chronologically by Year
+      3. Apply rolling standard deviation of Rating over last 15 matches
+      4. Invert: low std = high consistency score, high std = low score
+      5. Add epsilon (+0.1) to avoid division by zero for perfect players
+    Why: A player averaging 1.0 Rating every game is more predictable and
+    valuable than one swinging between 1.8 and 0.4.
+
+  PILLAR 7 - MAP SPECIALIZATION (helper: build_player_map_scores)
+    Output:  (Player, Map) -> map_acs_mean, map_kd_mean, map_appearances
+    Why: Players like Chronicle on Breeze dramatically outperform their average
+    on specific maps. Used by Step 4 to add map context.
+
+------------------------------------------------------------------------
+STEP 2 - Team Strength Aggregation  (src/models/baseline_model.py)
+------------------------------------------------------------------------
+WHY: Need to collapse 5 individual player rows into 1 team-level feature row.
+
+  Features per team:
+    mech_mean  = mean(Mechanical_Score)   -> average team firepower
+    mech_max   = max(Mechanical_Score)    -> star player ceiling
+    mech_std   = std(Mechanical_Score)    -> carry balance (low = distributed)
+    clutch_sum = sum(Clutch_Score)        -> total team clutch pool
+    entry_mean = mean(Entry_Success)      -> average opening duel quality
+    util_mean  = mean(Utility_Score)      -> average support depth
+    eco_mean   = mean(Economic_Score)     -> average eco round efficiency
+
+------------------------------------------------------------------------
+STEP 8 BASELINE - XGBoost Match Prediction  (src/models/baseline_model.py)
+------------------------------------------------------------------------
+WHY: We have 8,986 labeled matches. XGBoost handles sparse features, provides
+     feature importance, and is fast enough for real-time API inference.
+
+  Approach:
+    - Per match: (Team A features) - (Team B features) = single diff row
+    - Label: 1 = Team A won, 0 = Team A lost
+    - Split: first 80% chronologically = train, last 20% = test
+    WHY chronological: random split leaks future matches into training data
+    and inflates accuracy with information the model would not have at match time.
+
+  Hyperparameters:
+    n_estimators=200, max_depth=4, learning_rate=0.05 (untuned baseline)
+
+  RESULTS (7 features, untuned):
+    Accuracy:         81.37%
+    AUC-ROC:          0.8817
+    Log Loss:         0.4934
+    Dataset:          8,986 VCT matches, 2021-2025
+    Key insight:      mech_mean_diff = 0.84 importance
+    Interpretation:   The better-fragging team wins 84% of the time.
+                      VALORANT is fundamentally an aim-heavy game at T1 level.
+
+  Saved: models/baseline_xgb.json (loaded by API at startup for inference)
+
+  predict_match() method:
+    Input:  team_a_features dict, team_b_features dict
+    Output: { team_a_win_prob, team_b_win_prob, predicted_winner }
+
+------------------------------------------------------------------------
+STEP 3 - Team Chemistry Score  (src/scoring/chemistry.py)
+------------------------------------------------------------------------
+WHY: Players who have played 50+ matches together coordinate at a fundamentally
+     different level than strangers placed on a team. Most prediction models
+     ignore this entirely, treating rosters as static interchangeable units.
+
+  Method:
+    1. From overview.csv, extract (Match Name, Team, Player) triplets across all years
+    2. For every team in every match, generate all C(5,2) = 10 player pairs
+    3. Accumulate co-match counts for each unique pair across the full 5-year dataset
+    4. Built history for 43,667 unique player pairs
+
+  Conversion formula (logarithmic curve from ReadMe.md spec):
+    0 matches    ->  50% floor   (T1 pros don't collapse, but zero synergy)
+    1-5 matches  ->  60%         (just getting started)
+    5-15 matches ->  60% to 80%  (linear interpolation, rapid growth phase)
+    15+ matches  ->  80% to 100% (log(n-14)/log(100), asymptotic ceiling)
+
+  Final team score = mean(chemistry) across all 10 player pairs
+
+  VALIDATED RESULTS:
+    Gen.G 2024 (t3xture, Meteor, Lakia, Karon, Munchkin):
+      Chemistry = 93.3%
+      Top pair: t3xture + Karon = 52 matches together -> 96%
+      WHY: Gen.G ran the longest stable roster in 2024 VCT.
+           Model correctly identifies them as maximally cohesive.
+
+    Hypothetical superteam (aspas + TenZ + Derke + Leo + Boaster):
+      Chemistry = 64.3%
+      WHY: These players have never shared a team. Pairwise history is
+           near zero. Model correctly penalises lack of synergy even
+           though individual talent is world-class.
+
+
+------------------------------------------------------------------------
+STEP 4 - Map + Side Performance Score  (src/scoring/map_score.py)
+------------------------------------------------------------------------
+WHY: Players perform very differently across maps. aspas on Ascent (66% win rate)
+     is a different threat than aspas on Split (47% win rate). Side bias also
+     matters: some teams are heavily attack-favoured on certain maps.
+
+  Data sources:
+    overview.csv     -> per-player ACS, K/D, Kills, Deaths per map appearance
+    maps_scores.csv  -> per-team attacker/defender round counts and win/loss per map
+
+  Method:
+    Part A: Group overview by (Player, Map) -> map_acs_mean, map_kd_mean, map_appearances
+    Part B: From maps_scores, compute team win_rate, atk_win_rate, def_win_rate per map
+    Part C: Join player overview with historical team map win rates
+    Part D: Average across all teams a player has been on for each map
+    Part E: Compute composite map_score:
+
+  Composite map_score formula:
+    reliability  = min(appearances, 20) / 20     (caps at 1.0 after 20+ appearances)
+    acs_norm     = map_acs_mean / 300
+    kd_norm      = (map_kd_mean - 1) * 0.5
+    win_contrib  = map_win_rate - 0.5
+    map_score    = (acs_norm*0.40 + kd_norm*0.35 + win_contrib*0.25) * reliability * 100
+
+  Side advantage:
+    atk_advantage = player atk_win_rate - 0.51 (global T1 attack baseline)
+    def_advantage = player def_win_rate - 0.49 (global T1 defense baseline)
+
+  Output: 12,746 players profiled across 13 VCT maps
+
+  VALIDATED RESULTS:
+    aspas on Ascent:  map_score=47.90  acs=243  win_rate=66%  appearances=162
+    aspas on Split:   map_score=39.05  acs=244  win_rate=47%  appearances=105
+    aspas on Bind:    map_score=45.93  acs=267  win_rate=57%  appearances=126
+    aspas on Haven:   map_score=48.59  acs=243  win_rate=68%  appearances=144
+    WHY correct: aspas is historically weak on Split, dominant on Haven.
+
+
+================================================================================
+MODULE 1 - WORK REMAINING
+================================================================================
+
+[DONE] STEP 5 - Role Balance Score  (src/scoring/role_balance.py)
+  Data:   Agents column from overview.csv + hardcoded agent-to-role mapping
+  Logic:  If team lineup has all 5 roles (Duelist/Initiator/Controller/Sentinel/Flex) -> bonus.
+          Missing role -> penalty. Star agent in role -> per-agent bonus.
+
+  Formula:
+    role_coverage_score = len(covered_roles) * 15  # 0..75
+    full_role_bonus     = 20 if covered_roles == 5 else 0
+    missing_penalty     = missing_roles * 10
+    star_agent_bonus    = 3 * count(player in ROLE_STAR_AGENTS_by_role)
+    raw_score           = role_coverage_score + full_role_bonus + star_agent_bonus - missing_penalty
+    role_balance        = clip(raw_score, 0, 100)
+
+  Implementation:
+    - Added `RoleBalanceEngine` + `team_role_balance_from_df`.
+    - Merged into `BaselineModel.build_team_features` as `role_balance`.
+    - Default fallback: `role_balance = 50`
+    - `role_balance_diff` is computed in match dataset construction.
+
+[DONE] STEP 6+7 - Format and Stage Modifiers  (src/models/prediction_engine.py)
+  Format:
+    Bo1 -> map_score*1.2, chemistry*0.8, consistency*0.85
+    Bo3 -> map_score*1.0, chemistry*1.0, consistency*1.0
+    Bo5 -> map_score*0.8, chemistry*1.2, consistency*1.1
+
+  Stage:
+    Group Stage -> clutch*1.0, chemistry*1.0
+    Playoffs   -> clutch*1.3, chemistry*1.3
+
+  Logic:
+    - `PredictionEngine.apply_modifiers(team_features, format, stage)` adjusts team scores by format weights.
+    - Stage multiplier affects `clutch_sum` and `chemistry`:
+        stage_multiplier = (1.3 for Playoffs, else 1.0)
+    - Predict dataset uses these adjusted team values for A vs B diff.
+  Implementation:
+    - Added `src/models/prediction_engine.py` with explicit weight map.
+    - `BaselineModel.build_match_dataset` now applies this per-match.
+  Format:
+    Bo1:  amplify map_score weight, reduce chemistry weight (high variance format)
+    Bo3:  balanced weights across all features
+    Bo5:  amplify chemistry + consistency (endurance tests favour stable teams)
+  Stage:
+    Group Stage: standard weights
+    Playoffs:    playoff_score at 1.3x weight (clutch play matters more)
+  Implementation:
+    - Added `src/models/prediction_engine.py` with `PredictionEngine.apply_modifiers`
+      for map_score/chemistry/consistency/clutch by format and stage.
+    - BaselineModel now computes team-level `consistency`, `chemistry`, and
+      `map_score` placeholder + role_balance, and applies modifiers when
+      building match diffs.
+
+[DONE] STEP 8 FINAL - Retrain XGBoost with all features
+  New features: chemistry_diff, map_score_diff, role_balance_diff + format/stage
+  Result: Accuracy 81.42%, AUC-ROC 0.8865, Log Loss 0.4800 (with current configuration)
+  Note: map_score_diff contribution is currently 0 because map_score is placeholder 50 in this run.
+  Next: Hyperparameter sweep (grid search on max_depth, n_estimators, learning_rate) to target 84-88%. 
+
+[TODO] STEP 9 - FastAPI Backend  (backend/api.py)
+  POST /predict/match   -> two rosters + map pool + format -> full prediction JSON
+  GET  /players/search  -> player name autocomplete for frontend
+  GET  /player/{name}   -> individual score breakdown card
+
+[TODO] STEP 10 - React Frontend + Deployment  (frontend/)
+  Pages:
+    Match Predictor: select rosters, map pool, format -> PREDICT button
+    Prediction Result: win %, player matchups, map odds, key factors, map bans
+  Design:
+    Dark mode, VALORANT red #FF4655 accent, glassmorphism cards, smooth animations
+  Deployment:
+    Frontend: Vercel
+    Backend:  Render or Railway (FastAPI + models/baseline_xgb.json bundled at start)
+
+
+================================================================================
+MODULES 2-5 (After Module 1 is live)
+================================================================================
+
+MODULE 2 - Roster Change Impact Analysis
+  delta = strength(team_with_new_player) - strength(team_with_old_player)
+  Output: performance change %, chemistry impact, role shift, projected trajectory
+
+MODULE 3 - Player Intelligence System
+  3A: Compare any two players - Pure Aim mode vs Complete Player mode
+      Filters: time window, map, agent, opponent
+  3B: Clutch Probability System - 1vX win probability with context factors
+
+MODULE 4 - Agent Recommendation System
+  Input: your team + opponent team + map
+  Output: optimal 5-agent comp with role assignments and counter-pick reasoning
+  Logic: rank agents by player history on map, enforce full role coverage,
+         counter-pick where possible, never sacrifice player comfort
+
+MODULE 5 - Custom Match Simulator
+  Build any 5v5 from all historical T1 pros (e.g. TenZ + aspas + Derke + ...)
+  Unknown pairings: 50% chemistry floor
+  Output: win probability, per-player projections, weakest/strongest matchup
+
+
+================================================================================
+FILE REFERENCE
+================================================================================
+
+  data/raw/                     Raw Kaggle CSVs - NOT in git (~1.3 GB)
+  src/data/loader.py            Multi-year CSV ingestor
+  src/data/cleaner.py           Data cleaning and filtering
+  src/data/resolver.py          ID resolution (no string-join collisions)
+  src/scoring/individual_score.py  6-pillar PlayerScorer + map helper
+  src/scoring/chemistry.py         Pairwise chemistry engine (43,667 pair histories)
+  src/scoring/map_score.py         MapScoreEngine (12,746 players x 13 maps profiled)
+  src/models/baseline_model.py     BaselineModel: train/evaluate/save/load/predict
+  notebooks/01_data_exploration.py  EDA and anomaly validation
+  notebooks/02_scoring_logic.py     Score formula prototyping + validation
+  notebooks/03_baseline_model.py    Full training pipeline prototype
+  models/baseline_xgb.json     Saved model (81.37% acc, 0.8817 AUC)
+  requirements.txt             pandas, numpy, xgboost, scikit-learn, jupyter
+  venv/                        Python 3.14 virtual environment
+
+================================================================================

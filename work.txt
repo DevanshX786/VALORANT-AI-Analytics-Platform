@@ -278,3 +278,280 @@ PHASE 2 TARGETS (from ReadMe.md - Module 3 Player Intelligence)
   - Full Module 3B: Clutch probability system (1v1 through 1v5)
 
 ================================================================================
+
+
+================================================================================
+PENDING ROADMAP - PHASES 2 THROUGH 6 (Aligned to ReadMe.md)
+================================================================================
+
+------------------------------------------------------------------------
+PHASE 2: Player Intelligence + Scoring Completeness
+------------------------------------------------------------------------
+Goal (ReadMe): Module 3 - Player Intelligence System
+
+  [2.1] Complete Individual Player Score pillars
+    - consistency_score: Rolling std of Rating over last N matches per player
+    - map_scores: Per-player, per-map win rate and stat performance
+    - side_scores: Attack and defense win rates normalized against global map bias
+    - rookie_floor: Players with <10 T1 matches get bottom 25th percentile floor
+    - playoff_score: Separate stat weighting for elimination match performance
+    - time_window filter: Allow scoring over last 6mo / 1yr / 2yr / all-time
+
+  [2.2] Module 3A - Player Comparison Engine (src/scoring/player_comparison.py)
+    - Input: Two player names + optional filters (map, time window, opponent)
+    - Mode 1 (Without Abilities): ACS, K/D, HS%, accuracy only
+    - Mode 2 (With Abilities): All stats + utility damage, assists, agent win rate
+    - Output: Side-by-side breakdown across all sub-scores
+
+  [2.3] Module 3B - Clutch Probability System (src/scoring/clutch_probability.py)
+    - Input: Player name + scenario (1v1 through 1v5) + optional map/agent
+    - Logic: Win % estimate using historical clutch data weighted by difficulty
+    - Output: Clutch win probability per scenario
+
+------------------------------------------------------------------------
+PHASE 3: Chemistry Scoring + Full Roster-Aware Prediction (CORE)
+------------------------------------------------------------------------
+Goal (ReadMe): Chemistry scoring + full roster-aware prediction (core innovation)
+
+  [3.1] Team Chemistry Score (src/scoring/chemistry.py)
+    - Logarithmic buildup: 0-5 matches = 60%, 5-15 = 80%, 15+ = 95-100%
+    - Minimum floor: 50% for any combination (even strangers — they are T1 pros)
+    - Input: Roster of 5 player IDs + their shared match history
+    - Output: Chemistry multiplier (0.5 to 1.0)
+
+  [3.2] Role Balance Score (src/scoring/role_balance.py)
+    - Map agents to roles: Duelist / Initiator / Controller / Sentinel / Flex
+    - Penalty if role is missing, bonus if coverage is complete
+    - Extra bonus if player best agent matches assigned role
+    - Input: 5-player agent lineup
+    - Output: Role balance multiplier
+
+  [3.3] Map Performance Score (src/scoring/map_score.py)
+    - Per team per map: historical win rate, attack win rate, defense win rate
+    - Normalize attack/defense against global side bias per map
+    - Input: Team ID + Map name
+    - Output: Map strength score
+
+  [3.4] Upgrade Prediction Pipeline (src/models/roster_aware_model.py)
+    - Replace simple team aggregation with:
+        Player Scores -> Chemistry Adjust -> Role Balance -> Map Context
+    - Add Bo1/Bo3/Bo5 format modifier
+    - Add Group Stage vs Playoffs tournament stage modifier
+    - Retrain XGBoost with full feature set and evaluate uplift over baseline
+
+  [3.5] Roster Change Impact (src/models/roster_diff.py)
+    - delta = strength(new lineup) - strength(old lineup)
+    - Output: % change, chemistry impact, role balance shift, strength trajectory
+
+------------------------------------------------------------------------
+PHASE 4: Agent Recommendation Module
+------------------------------------------------------------------------
+Goal (ReadMe): Module 4 - Suggest optimal 5-agent composition per map
+
+  [4.1] src/recommendation/agent_recommender.py
+    - Step 1: Rank each player agents by historical performance on this map
+    - Step 2: Enforce role coverage (Duelist / Initiator / Controller / Sentinel / Flex)
+    - Step 3: Counter-pick opponent last composition where possible
+    - Step 4: Never sacrifice player comfort for a counter-pick
+    - Output: Recommended agent per player + role + reasoning + what it counters
+
+------------------------------------------------------------------------
+PHASE 5: Custom Match Simulator
+------------------------------------------------------------------------
+Goal (ReadMe): Module 5 - Simulate any two custom 5-player teams
+
+  [5.1] src/simulator/match_simulator.py
+    - Input: Any 10 player names (do not need to be on same real team)
+    - Unknown chemistry combinations start at 50% floor
+    - Output: Win probability per team, per-player projections,
+              weakest matchup, strongest matchup, recommended agent comp
+
+------------------------------------------------------------------------
+PHASE 6: Full Stack Deployment
+------------------------------------------------------------------------
+Goal (ReadMe): React frontend + FastAPI backend + deployment
+
+  [6.1] Backend API (backend/ + app.py using FastAPI)
+    - POST /predict/match       -> Run match prediction pipeline
+    - POST /compare/players     -> Player comparison module
+    - POST /recommend/agents    -> Agent recommendation module
+    - POST /simulate/match      -> Custom match simulator
+    - GET  /player/{name}/score -> Fetch individual player score breakdown
+
+  [6.2] Frontend (frontend/ using React)
+    - Home: Platform overview + quick match predict input
+    - Match Predictor page: Input rosters, map pool, format -> get prediction
+    - Player Compare page: Input two players -> side-by-side comparison
+    - Clutch Simulator page: 1vX scenario probability tool
+    - Match Simulator page: Custom 10-player sim with any pros
+    - Agent Recommender page: Input team + opponent + map -> get comp
+
+  [6.3] Deployment
+    - Frontend: Vercel
+    - Backend: Render or Railway
+    - Model: Bundled with backend (models/baseline_xgb.json loaded at startup)
+
+========================================================================
+IMMEDIATE NEXT STEP: Start Phase 2.1 - consistency_score and map_scores
+========================================================================
+
+
+[8] PHASE 2 - PLAYER INTELLIGENCE & REFINEMENT
+Status: PENDING
+
+GOAL: Refine player scoring with context-aware metrics and build the comparison engine.
+
+--- PENDING NEXT STEPS ---
+
+Step 1: Multi-Match Rolling Window (Consistency)
+  - Group scored_df by Player.
+  - Calculate 1/std(Rating) over the last 15 matches to quantify consistency.
+  - Goal: Reward the 'steady' pros, flag 'coin-flip' players.
+
+Step 2: Map & Side Specialization
+  - Pivot stats to show per-map ACS, K/D, and Win Rate.
+  - Calculate Attacker/Defender side bias for each player (e.g., 'Aspas is a 70% offensive entry').
+  - Goal: Provide map-specific team analysis.
+
+Step 3: Rookie Performance Floor
+  - Detect players with <10 matches in the dataset.
+  - Assign a 25th percentile 'floor' score that grows as they play.
+  - Goal: Prevent models from hallucinating 0.0 scores for new talent.
+
+Step 4: Player Comparison Module (3A)
+  - Logic to compare Player X vs Player Y.
+  - Modes: 'Pure Aim' (mechanical_score) vs 'Complete Player' (all pillars).
+  - Filter by timeline, map, and agent.
+
+Step 5: Clutch Probability System (3B)
+  - Model success rates in 1v1 to 1v5 scenarios.
+  - Factor in mechanical skill + agents + map context.
+
+================================================================================
+
+
+================================================================================
+MODULE 1: MATCH PREDICTION ENGINE - FULL PLAN
+================================================================================
+
+GOAL:
+  Given two teams (5 players each), a map pool, and a match format (Bo1/Bo3/Bo5),
+  predict which team wins and WHY with a full breakdown.
+
+FULL PROCESS (ReadMe.md spec):
+  Step 1 -> Calculate individual player scores for all 10 players
+  Step 2 -> Aggregate each 5-man roster into team strength scores
+  Step 3 -> Apply chemistry adjustment (how long have these 5 played together?)
+  Step 4 -> Apply map performance + side tendency modifiers
+  Step 5 -> Apply role balance score (Duelist/Initiator/Controller/Sentinel/Flex)
+  Step 6 -> Apply match format modifier (Bo1 vs Bo3 vs Bo5)
+  Step 7 -> Apply tournament stage modifier (Group Stage vs Playoffs)
+  Step 8 -> Feed all features into trained XGBoost model -> Win Probability
+  Step 9 -> Expose via FastAPI backend
+  Step 10 -> Visualize on React frontend -> Deploy
+
+EXPECTED OUTCOME:
+  - Win probability % per team
+  - Player matchup analysis (who wins their individual lane)
+  - Map-by-map odds across the pool
+  - Recommended map bans per team
+  - Key factors driving prediction (e.g. 'Team A has +15% chemistry advantage on Ascent')
+
+================================================================================
+WORK DONE (Phase 1 Baseline)
+================================================================================
+  [DONE] Step 1 - Individual Player Scoring
+         mechanics: ACS + K/D + multi-kills (2k-5k)
+         clutch: exponentially weighted 1v1 to 1v5
+         entry: First Kills / (FK + FD) ratio + FKD delta
+         utility: Assists + Spike Plants + Defuses
+         economic: Econ rating from kills_stats.csv
+         files: src/scoring/individual_score.py
+
+  [DONE] Step 2 - Team Strength Aggregation
+         mean/max/std of Mechanical Score for 5 players
+         sum of Clutch Score, mean of Entry Success and Utility
+         files: src/models/baseline_model.py -> build_team_features()
+
+  [DONE] Step 8 (Baseline) - XGBoost Baseline Model
+         head-to-head diff rows per match
+         trained on 8,986 VCT matches (2021-2025)
+         accuracy 81.37% | AUC-ROC 0.8817
+         saved model: models/baseline_xgb.json
+         files: src/models/baseline_model.py
+
+================================================================================
+WORK REMAINING (To Complete Module 1)
+================================================================================
+  [TODO] Step 1 (Refinement) - Consistency Score
+         rolling std of Rating over last 15-20 matches per player
+         reward stable performers, flag coin-flips
+
+  [TODO] Step 3 - Team Chemistry Score
+         count matches played together for each player pair
+         apply logarithmic curve: 0-5 matches = 60%, 5-15 = 80%, 15+ = 100%
+         floor: 50% for any new combination (all are T1 pros)
+         file: src/scoring/chemistry.py (NEW)
+
+  [TODO] Step 4 - Map Performance + Side Score
+         per-player win rate and ACS on each map
+         attacker-side vs defender-side normalized win rates
+         load from: matches/maps_scores.csv
+         file: src/scoring/map_score.py (NEW)
+
+  [TODO] Step 5 - Role Balance Score
+         hardcode agent-to-role mapping (Duelist/Initiator/Controller/Sentinel)
+         bonus if full role coverage, penalty if missing a role
+         file: src/scoring/role_balance.py (NEW)
+
+  [TODO] Step 6 - Format Modifier (Bo1/Bo3/Bo5)
+         Bo1: amplify map-specific scores, reduce chemistry weight
+         Bo3: balanced weights
+         Bo5: amplify chemistry and consistency
+         file: src/models/prediction_engine.py (NEW)
+
+  [TODO] Step 7 - Tournament Stage Modifier
+         playoff_score weighted at 1.3x in Playoffs
+         file: src/models/prediction_engine.py (NEW)
+
+  [TODO] Step 8 (Final) - Retrain XGBoost with all features
+         include all new scores in feature set
+         sweep hyperparameters to improve on 81.37% baseline
+
+  [TODO] Step 9 - FastAPI Backend
+         POST /predict/match   -> run full prediction pipeline
+         GET  /players/search  -> autocomplete player names
+         GET  /player/{id}     -> individual player score breakdown
+         file: backend/api.py (NEW)
+
+  [TODO] Step 10 - React Frontend + Deployment
+         MatchPredictor page: select rosters, map pool, format
+         PredictionResult page: win %, player matchups, map odds, key factors
+         Dark mode, VALORANT red (#FF4655) accent, glassmorphism UI
+         Deploy: Vercel (frontend) + Render/Railway (backend)
+
+================================================================================
+
+
+================================================================================
+CURRENT WORK IN PROGRESS
+================================================================================
+
+[STEP 1 REFINEMENT] - Consistency Score (src/scoring/individual_score.py)
+  - Group all player records by Player name
+  - Sort chronologically by Year
+  - Compute rolling std of Rating over last 15 matches per player
+  - Formula: Consistency = 1 / (rolling_std + 0.1)
+  - Merge back onto per-map rows so the model can use it
+
+[STEP 3] - Team Chemistry Score (src/scoring/chemistry.py)
+  - Load team_mapping.csv across all years to get who played with who
+  - For each match, count how many previous matches each player pair shared
+  - Apply logarithmic curve:
+      0-5  matches together = 60% chemistry
+      5-15 matches together = 80% chemistry
+     15+   matches together = 95-100% chemistry
+  - Output per-team chemistry score (avg pairwise chemistry across all 10 pairs)
+  - Floor: 50% for any pairing (T1 pros baseline)
+
+================================================================================

@@ -13,11 +13,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from src.data.loader import VCTDataLoader
 from src.data.cleaner import VCTCleaner
 from src.scoring.individual_score import PlayerScorer
+from src.scoring.role_balance import RoleBalanceEngine
+from src.scoring.chemistry import ChemistryEngine
+from src.models.prediction_engine import PredictionEngine
 
 
 FEATURE_COLS = [
     'mech_mean', 'mech_max', 'mech_std',
-    'clutch_sum', 'entry_mean', 'util_mean', 'eco_mean'
+    'clutch_sum', 'entry_mean', 'util_mean', 'eco_mean',
+    'consistency', 'chemistry', 'map_score', 'role_balance'
 ]
 
 
@@ -63,6 +67,49 @@ class BaselineModel:
             .reset_index()
         )
         team_agg['mech_std'] = team_agg['mech_std'].fillna(0)
+
+        # Step 6: Add consistency (team-level mean of player consistency scores)
+        consistency_df = (
+            scored_df
+            .groupby(['Match Name', 'Team'])['Consistency_Score']
+            .mean()
+            .reset_index()
+            .rename(columns={'Consistency_Score':'consistency'})
+        )
+        team_agg = pd.merge(team_agg, consistency_df, on=['Match Name', 'Team'], how='left')
+        team_agg['consistency'] = team_agg['consistency'].fillna(5.0)
+
+        # Step 3: Team chemistry score
+        chem_engine = ChemistryEngine(scored_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
+        roster_df = (
+            scored_df[['Match Name', 'Team', 'Player']]
+            .drop_duplicates()
+            .groupby(['Match Name', 'Team'])['Player']
+            .apply(list)
+            .reset_index()
+        )
+        roster_df['chemistry'] = roster_df['Player'].apply(lambda players: chem_engine.get_team_chemistry_score(players))
+
+        team_agg = pd.merge(team_agg, roster_df[['Match Name', 'Team', 'chemistry']], on=['Match Name', 'Team'], how='left')
+        team_agg['chemistry'] = team_agg['chemistry'].fillna(0.5)
+
+        # Step 4: Map score placeholder (can be replaced with MapScoreEngine injection later)
+        team_agg['map_score'] = 50.0
+
+        # Step 5: Role balance score based on agents in the roster
+        role_engine = RoleBalanceEngine()
+        role_balance_df = role_engine.team_role_balance_from_df(scored_df)
+
+        team_agg = pd.merge(
+            team_agg,
+            role_balance_df,
+            on=['Match Name', 'Team'],
+            how='left'
+        )
+
+        team_agg['Role_Balance_Score'] = team_agg['Role_Balance_Score'].fillna(50.0)
+        team_agg.rename(columns={'Role_Balance_Score': 'role_balance'}, inplace=True)
+
         return team_agg
 
     # ------------------------------------------------------------------
@@ -92,16 +139,23 @@ class BaselineModel:
         rows = []
         for _, match in scores.iterrows():
             mn = match['Match Name']
+            fmt = match.get('Format', 'Bo3') if 'Format' in match else 'Bo3'
+            stage = match.get('Stage', 'Group') if 'Stage' in match else 'Group'
             try:
                 row_a = team_index.loc[(mn, match['Team A'])]
                 row_b = team_index.loc[(mn, match['Team B'])]
-                # Handle case where loc returns a DataFrame (multiple rows) — take first row
+
                 if isinstance(row_a, pd.DataFrame):
                     row_a = row_a.iloc[0]
                 if isinstance(row_b, pd.DataFrame):
                     row_b = row_b.iloc[0]
-                fa = row_a[FEATURE_COLS].values.astype(float)
-                fb = row_b[FEATURE_COLS].values.astype(float)
+
+                pred_engine = PredictionEngine(match_format=fmt, stage=stage)
+                team_a_features = pred_engine.apply_modifiers(row_a[FEATURE_COLS].to_dict(), fmt, stage)
+                team_b_features = pred_engine.apply_modifiers(row_b[FEATURE_COLS].to_dict(), fmt, stage)
+
+                fa = np.array([team_a_features[c] for c in FEATURE_COLS], dtype=float)
+                fb = np.array([team_b_features[c] for c in FEATURE_COLS], dtype=float)
             except KeyError:
                 continue
             rows.append(list(fa - fb) + [match['label']])
