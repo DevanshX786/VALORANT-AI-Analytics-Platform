@@ -114,70 +114,77 @@ def apply_series_pressure_adjustment(prob_a: float, fmt: str, team_a_wins: int, 
     adjusted = max(0.01, min(0.99, prob_a + delta))
     return float(adjusted), float(delta)
 
-loader = VCTDataLoader(data_dir=DATA_DIR)
-ov = loader.load_overviews()
-kills = loader.load_kills_stats()
-maps_scores = loader.load_maps_scores()
-scores = loader.load_scores()
-
-# Keep all 5-year data in a single cleaned frame
-if 'Year' not in ov.columns:
-    ov['Year'] = 'unknown'
-
-cleaner = VCTCleaner()
-
-# Merge with kills to ensure all metrics in player scorer
-base_join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Year']
-join_cols = [c for c in base_join_cols if c in ov.columns and c in kills.columns]
-if not join_cols:
-    raise RuntimeError("No common join columns found between overview and kills_stats.")
-
-# Use a left join to avoid silent row loss when kills_stats is missing for some matches.
-merged = pd.merge(ov, kills, on=join_cols, how='left', suffixes=('', '_kills'))
-
-# Ensure `Agents` column exists post-merge (prefer overview's Agents)
-if 'Agents' not in merged.columns:
-    # common case: overview had Agents, but got suffixes from merge
-    if 'Agents_x' in merged.columns:
-        merged['Agents'] = merged['Agents_x']
-    elif 'Agents_y' in merged.columns:
-        merged['Agents'] = merged['Agents_y']
-clean_df = cleaner.clean_overviews(merged)
-
-scorer = PlayerScorer()
-scored_df = scorer.compute_overall_score(clean_df)
-
-# Precompute player summary for quick lookup
-player_summary = scored_df.groupby('Player').agg(
-    mech_mean=('Mechanical_Score', 'mean'),
-    clutch_mean=('Clutch_Score', 'mean'),
-    entry_mean=('Entry_Success', 'mean'),
-    util_mean=('Utility_Score', 'mean'),
-    eco_mean=('Economic_Score', 'mean'),
-    consistency_mean=('Consistency_Score', 'mean')
-).reset_index().set_index('Player')
-
 # ------------------------------------------------------------------
-# Dynamic Threshold Analysis: Removing all hardcoded 'Superstar' names.
-# Derive 'Elite' status from raw data percentiles.
+# Global Resource Loading (Hybrid Production-Lite Flow)
+# Priority 1: Load precomputed pickles (Production/Cloud)
+# Priority 2: Fallback to raw 1GB CSV ingestion (Local Dev)
 # ------------------------------------------------------------------
-ELITE_MECH_THRESHOLD = float(player_summary['mech_mean'].quantile(0.95))
-print(f"[Dynamic Scaling] Elite Superstar Threshold established at: {ELITE_MECH_THRESHOLD:.2f}")
+MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
+SUMMARY_PATH = os.path.join(MODELS_DIR, 'player_summary.pkl')
+ENGINE_PATH = os.path.join(MODELS_DIR, 'map_engine.pkl')
+CHEMISTRY_PATH = os.path.join(MODELS_DIR, 'chemistry_engine.pkl')
 
-# Build map scoring engine for per-player/per-map computations
-map_engine = MapScoreEngine()
-map_engine.build(clean_df, maps_scores)
+player_summary = None
+map_engine = None
+chem_engine = None
+SUPPORTED_MAPS = []
 
-# Supported map set based on what actually exists in the built table.
-try:
-    SUPPORTED_MAPS = sorted(
-        list(map_engine._player_map_table.index.get_level_values('Map').unique())  # type: ignore[attr-defined]
-    )
-except Exception:
-    SUPPORTED_MAPS = []
+if os.path.exists(SUMMARY_PATH) and os.path.exists(ENGINE_PATH) and os.path.exists(CHEMISTRY_PATH):
+    import pickle
+    print(f"[Sync Engine] Production-Lite detected. Loading precomputed intelligence...")
+    with open(SUMMARY_PATH, 'rb') as f:
+        player_summary = pickle.load(f)
+    with open(ENGINE_PATH, 'rb') as f:
+        map_engine = pickle.load(f)
+    with open(CHEMISTRY_PATH, 'rb') as f:
+        chem_engine = pickle.load(f)
+    print(f"[Sync Engine] Success. {len(player_summary)} players, {len(map_engine._player_map_table.index.get_level_values('Map').unique())} maps, and {len(chem_engine._pair_history)} chemistry pairs ready.")
+else:
+    print(f"[Sync Engine] No pickles found. Running full 1.3GB ingestion (Local Dev Only)...")
+    loader = VCTDataLoader(data_dir=DATA_DIR)
+    ov = loader.load_overviews()
+    kills = loader.load_kills_stats()
+    maps_scores = loader.load_maps_scores()
+    
+    cleaner = VCTCleaner()
+    base_join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Year']
+    join_cols = [c for c in base_join_cols if c in ov.columns and c in kills.columns]
+    if not join_cols:
+        # Fallback for empty data environments
+        player_summary = pd.DataFrame()
+        map_engine = MapScoreEngine()
+        from src.scoring.chemistry import ChemistryEngine
+        chem_engine = ChemistryEngine(pd.DataFrame(columns=['Match Name', 'Team', 'Player', 'Year']))
+    else:
+        merged = pd.merge(ov, kills, on=join_cols, how='left', suffixes=('', '_kills'))
+        if 'Agents' not in merged.columns:
+            if 'Agents_x' in merged.columns: merged['Agents'] = merged['Agents_x']
+        
+        clean_df = cleaner.clean_overviews(merged)
+        scorer = PlayerScorer()
+        scored_df = scorer.compute_overall_score(clean_df)
+        
+        player_summary = scored_df.groupby('Player').agg(
+            mech_mean=('Mechanical_Score', 'mean'),
+            clutch_mean=('Clutch_Score', 'mean'),
+            entry_mean=('Entry_Success', 'mean'),
+            util_mean=('Utility_Score', 'mean'),
+            eco_mean=('Economic_Score', 'mean'),
+            consistency_mean=('Consistency_Score', 'mean')
+        ).reset_index().set_index('Player')
+        
+        map_engine = MapScoreEngine()
+        map_engine.build(clean_df, maps_scores)
+        
+        from src.scoring.chemistry import ChemistryEngine
+        chem_engine = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
 
-# Build chemistry engine based on all matches
-chem_engine = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
+# Establish Dynamic Superstar Threshold on startup
+if player_summary is not None and not player_summary.empty:
+    ELITE_MECH_THRESHOLD = float(player_summary['mech_mean'].quantile(0.95))
+    print(f"[Dynamic Scaling] Elite Superstar Threshold established at: {ELITE_MECH_THRESHOLD:.2f}")
+else:
+    ELITE_MECH_THRESHOLD = 45.0 # Fallback
 role_engine = RoleBalanceEngine()
 pred_engine = PredictionEngine()
 
