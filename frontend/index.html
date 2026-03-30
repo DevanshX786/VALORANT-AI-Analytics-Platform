@@ -201,6 +201,27 @@
       border-radius: 8px;
       margin-top: 1rem;
     }
+    .map-prob-bar {
+      width: 100%;
+      height: 16px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      margin: 0.6rem 0 0.9rem 0;
+    }
+    .map-prob-fill {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .map-prob-a { background: var(--val-red); }
+    .map-prob-b { background: #1f7f9a; }
     .matchup-row {
       display: flex;
       justify-content: space-between;
@@ -406,19 +427,37 @@
 
     let html = '';
     data.map_results.forEach(mr => {
+      const mapProbA = Number(mr.team_a_win_prob);
+      const mapProbB = Number(mr.team_b_win_prob);
+      const mapAWidth = Number.isFinite(mapProbA) ? Math.max(0, Math.min(100, mapProbA)) : 50;
+      const mapBWidth = Number.isFinite(mapProbB) ? Math.max(0, Math.min(100, mapProbB)) : 50;
+      const mapAText = Number.isFinite(mapProbA) ? mapProbA.toFixed(2) : mr.team_a_win_prob;
+      const mapBText = Number.isFinite(mapProbB) ? mapProbB.toFixed(2) : mr.team_b_win_prob;
+
       html += `<div class="map-result">`;
-      html += `<h3 style="margin-top:0; color:#fff">${mr.map.toUpperCase()} <span style="font-weight:300; font-size:1rem; color:#aaa; margin-left:1rem;">${mr.team_a_win_prob}% vs ${mr.team_b_win_prob}%</span></h3>`;
+      html += `<h3 style="margin-top:0; color:#fff">${mr.map.toUpperCase()} <span style="font-weight:300; font-size:1rem; color:#aaa; margin-left:1rem;">${mapAText}% vs ${mapBText}%</span></h3>`;
+      html += `
+        <div class="map-prob-bar">
+          <div class="map-prob-fill map-prob-a" style="width:${mapAWidth}%">${mapAText}%</div>
+          <div class="map-prob-fill map-prob-b" style="width:${mapBWidth}%">${mapBText}%</div>
+        </div>
+      `;
       
       mr.player_matchup.player_matchups.forEach(pm => {
          let pA = pm.player_a;
          let pB = pm.player_b;
-         let advClass = pm.advantage === 'A' ? 'adv-a' : 'adv-b';
-         let sym = pm.advantage === 'A' ? '>>>' : '<<<';
+         let scoreA = Number(pm.map_score_a);
+         let scoreB = Number(pm.map_score_b);
+         let scoreATxt = Number.isFinite(scoreA) ? scoreA.toFixed(2) : pm.map_score_a;
+         let scoreBTxt = Number.isFinite(scoreB) ? scoreB.toFixed(2) : pm.map_score_b;
+
+         let advClass = pm.advantage === 'A' ? 'adv-a' : pm.advantage === 'B' ? 'adv-b' : '';
+         let sym = pm.advantage === 'A' ? '>>>' : pm.advantage === 'B' ? '<<<' : '=';
          
          html += `
            <div class="matchup-row ${advClass}">
              <span style="width: 35%;">${pA}</span>
-             <span style="width: 30%; text-align:center; color:#777; font-weight:400; font-size:0.9rem;">${pm.map_score_a} ${sym} ${pm.map_score_b}</span>
+             <span style="width: 30%; text-align:center; color:#777; font-weight:400; font-size:0.9rem;">${scoreATxt} ${sym} ${scoreBTxt}</span>
              <span style="width: 35%; text-align:right;">${pB}</span>
            </div>
          `;

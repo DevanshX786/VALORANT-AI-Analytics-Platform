@@ -106,9 +106,7 @@ class BaselineModel:
         team_agg = pd.merge(team_agg, roster_df[['Match Name', 'Team', 'chemistry']], on=['Match Name', 'Team'], how='left')
         team_agg['chemistry'] = team_agg['chemistry'].fillna(0.5)
 
-        # Step 4: Map score placeholder (can be replaced with MapScoreEngine injection later)
-        team_agg['map_score'] = 50.0
-
+        # Step 4: Map Score calculation already natively merged during baseline aggregation on line 78.
         # Step 5: Role balance score based on agents in the roster
         role_engine = RoleBalanceEngine()
         role_balance_df = role_engine.team_role_balance_from_df(scored_df)
@@ -240,12 +238,12 @@ class BaselineModel:
         """Saves the trained XGBoost model to disk."""
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.model.save_model(path)
-        print(f"\nModel saved → {path}")
+        print(f"\nModel saved -> {path}")
 
     def load(self, path: str = "models/baseline_xgb.json"):
         """Loads a previously saved XGBoost model from disk."""
         self.model.load_model(path)
-        print(f"Model loaded ← {path}")
+        print(f"Model loaded <- {path}")
 
     # ------------------------------------------------------------------
     # Convenience: predict a single match head-to-head
@@ -276,6 +274,7 @@ if __name__ == "__main__":
     overview_df = loader.load_overviews()
     kills_df    = loader.load_kills_stats()
     scores_df   = loader.load_scores()
+    maps_scores = loader.load_maps_scores()
 
     join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Agents', 'Year']
     merged_df = pd.merge(overview_df, kills_df, on=join_cols, how='inner')

@@ -394,6 +394,143 @@ MODULE 1 - WORK REMAINING
 ✅ MODULE 1 OFFICIALLY COMPLETED ✅
 ================================================================================
 
+================================================================================
+BUG FIXES & MAP SCORE PATCH (MODULE 1)
+================================================================================
+1. The Dummy Roster Account Fix
+   - Raw data mapped `f0rsaken` to a Sova-only dummy account, giving 0 stats.
+   - Built backend bypass intercept routing `f0rsaken` to canonical `f0rsakeN`.
+
+2. The ML Dataset Placeholder Fix
+   - Found `team_agg['map_score'] = 50.0` placeholder during model training blocking Map Advantage.
+   - Deleted placeholder, allowing XGBoost to map Feature Importance. Model retrained.
+
+3. The "Flex" Role Penalty Fix
+   - The REQUIRED_ROLES list accidentally required a literal 'flex' agent class, punishing perfectly standard 5-man rosters.
+   - Removed 'flex' from REQUIRED_ROLES inside src/scoring/role_balance.py to restore default 4-role synergy.
+
+4. Live Inference Desynchronization Fix
+   - Real-time backend ignored Format and Stage modifiers (Bo3 vs Bo5, Group vs Playoffs) unlike the ML training pipeline.
+   - Initialized PredictionEngine efficiently on FastAPI startup and wrapped build_team_features logic with apply_modifiers.
+
+5. Agent Canonical Spelling Fix (Harbor/Harbour)
+   - Standardized internal canonical agent name to Riot spelling: `harbor`.
+   - Added alias normalization so raw strings like `harbour`/`harbore` are treated as `harbor`.
+   - WHY: Prevent silent role-mapping misses from simple spelling variants.
+
+6. Map Pool Normalization + Validation (Backend)
+   - Added `normalize_map_name()` in `backend/api.py` and validate incoming `map_pool` against the actual maps present in `MapScoreEngine`’s built table.
+   - WHY: Prevent “unknown map” requests from quietly returning 0 map_score (and skewing predictions).
+
+7. Hardened overview+kills_stats Merge (Backend)
+   - Changed merge to use stable base keys only: `Match Name`, `Map`, `Player`, `Team`, `Year`.
+   - Switched to `how='left'` to avoid dropping overview rows when kills_stats is missing for some records.
+   - Ensured `Agents` column exists after merge (prefers overview’s Agents).
+   - WHY: Using `Agents` as a join key can cause silent row loss if the two files disagree on formatting.
+
+8. Resolver Placeholder Guardrail
+   - Updated `src/data/resolver.py` to raise `NotImplementedError` instead of returning placeholder IDs.
+   - WHY: Placeholder IDs create silent join collisions and corrupt downstream scoring if used.
+
+
+================================================================================
+FORMULA REFERENCE (ALL CORE STATS)
+================================================================================
+
+PLAYER-LEVEL STATS (src/scoring/individual_score.py)
+  1) mechanical_score
+     = (ACS * 0.45)
+       + ((Kills / Deaths) * 30)
+       + ((2k*2 + 3k*3 + 4k*4 + 5k*5) * 2)
+
+  2) clutch_score
+     = (1v1*1) + (1v2*2) + (1v3*4) + (1v4*8) + (1v5*15)
+
+  3) entry_success
+     = (FK / (FK + FD) * 100) + FKD
+       where FKD = FK - FD
+
+  4) utility_score
+     = Assists + (Spike_Plants * 0.5) + (Spike_Defuses * 0.5)
+
+  5) economic_score
+     = Econ_Rating * 10
+
+  6) consistency_score
+     = (1 / (rolling_std(Rating, window=15) + 0.1)) * 10
+
+MAP/CONTEXT STATS (src/scoring/map_score.py)
+  7) map reliability
+     = min(map_appearances, 20) / 20
+
+  8) map normalization terms
+     acs_norm    = map_acs_mean / 300
+     kd_norm     = (map_kd_mean - 1) * 0.5
+     win_contrib = map_win_rate - 0.5
+
+  9) map_score
+     = (acs_norm*0.40 + kd_norm*0.35 + win_contrib*0.25) * reliability * 100
+
+ 10) side advantages
+     atk_advantage = atk_win_rate - 0.51
+     def_advantage = def_win_rate - 0.49
+
+CHEMISTRY STATS (src/scoring/chemistry.py)
+ 11) pair chemistry by matches together n
+     if n = 0: chemistry = 0.50
+     if 1 <= n <= 5: chemistry = 0.60
+     if 5 < n <= 15: chemistry = 0.60 + ((n - 5) / 10) * 0.20
+     if n > 15: chemistry = 0.80 + (log(n - 14) / log(100)) * 0.20, capped at 1.00
+
+ 12) team chemistry
+     = mean(pair_chemistry over all C(5,2)=10 roster pairs)
+
+ROLE BALANCE STATS (src/scoring/role_balance.py)
+ 13) role_coverage_score = len(covered_required_roles) * 15
+ 14) full_role_bonus     = 20 if all required roles are covered else 0
+ 15) missing_penalty     = missing_required_roles * 10
+ 16) star_agent_bonus    = 3 * count(role-star agent picks in lineup)
+ 17) role_balance_raw    = role_coverage_score + full_role_bonus + star_agent_bonus - missing_penalty
+ 18) role_balance        = clip(role_balance_raw, 0, 100)
+
+TEAM AGGREGATION STATS (src/models/baseline_model.py)
+ 19) mech_mean   = mean(Mechanical_Score of 5 players)
+ 20) mech_max    = max(Mechanical_Score of 5 players)
+ 21) mech_std    = std(Mechanical_Score of 5 players)
+ 22) clutch_sum  = sum(Clutch_Score of 5 players)
+ 23) entry_mean  = mean(Entry_Success of 5 players)
+ 24) util_mean   = mean(Utility_Score of 5 players)
+ 25) eco_mean    = mean(Economic_Score of 5 players)
+ 26) consistency = mean(Consistency_Score of 5 players)
+ 27) map_score   = mean(player map_score across 5 players on selected map)
+ 28) chemistry   = team chemistry from pair-history engine
+ 29) role_balance= team role balance from role engine
+
+FORMAT/STAGE MODIFIERS (src/models/prediction_engine.py)
+ 30) Bo1: map_score*=1.2, chemistry*=0.8, consistency*=0.85
+ 31) Bo3: map_score*=1.0, chemistry*=1.0, consistency*=1.0
+ 32) Bo5: map_score*=0.8, chemistry*=1.2, consistency*=1.1
+ 33) Stage multiplier:
+       Group    => stage_mul = 1.0
+       Playoffs => stage_mul = 1.3
+     Then:
+       clutch_sum *= stage_mul
+       chemistry  *= stage_mul
+
+MODEL INPUT / PREDICTION (src/models/baseline_model.py)
+ 34) per-match feature diff
+     feature_diff = TeamA_feature - TeamB_feature
+     for all:
+       mech_mean, mech_max, mech_std, clutch_sum, entry_mean, util_mean,
+       eco_mean, consistency, chemistry, map_score, role_balance
+
+ 35) label
+     y = 1 if Team A Score > Team B Score else 0
+
+ 36) prediction output
+     prob_a = model.predict_proba(diff_row)[1]
+     prob_b = 1 - prob_a
+
 
 ================================================================================
 MODULES 2-5 (After Module 1 is live)

@@ -5,7 +5,7 @@ import pandas as pd
 # Agent role ontology (VCT current meta, 30 agents)
 # ------------------------------------------------------------------
 FULL_AGENT_POOL = {
-    'brimstone','viper','omen','astra','harbour','clove','miks',
+    'brimstone','viper','omen','astra','harbor','clove','miks',
     'phoenix','jett','reyna','raze','yoru','neon','iso','waylay',
     'sova','breach','skye','kayo','fade','gekko','tejo',
     'killjoy','cypher','sage','chamber','deadlock','vyse','veto'
@@ -14,17 +14,18 @@ FULL_AGENT_POOL = {
 AGENT_ROLE_MAP = {
     'duelist': {'phoenix', 'jett', 'reyna', 'raze', 'yoru', 'neon', 'iso', 'waylay'},
     'initiator': {'sova', 'breach', 'skye', 'kayo', 'fade', 'gekko', 'tejo'},
-    'controller': {'brimstone', 'viper', 'omen', 'astra', 'harbour', 'clove', 'miks'},
+    'controller': {'brimstone', 'viper', 'omen', 'astra', 'harbor', 'clove', 'miks'},
     'sentinel': {'killjoy', 'cypher', 'sage', 'chamber', 'deadlock', 'vyse', 'veto'},
-    'flex': {'neon', 'yoru', 'kayo', 'fade', 'gekko', 'tejo', 'harbour', 'miks', 'clove', 'deadlock', 'vyse', 'veto'}
+    'flex': {'neon', 'yoru', 'kayo', 'fade', 'gekko', 'tejo', 'harbor', 'miks', 'clove', 'deadlock', 'vyse', 'veto'}
 }
 
 # map known variants to canonical names (including spelling variants from raw data)
 AGENT_CANONICAL_ALIAS = {
-    'harbor': 'harbour',
-    'harbore': 'harbour',
+    # Accept British spelling / common typos, canonicalize to Riot spelling.
+    'harbour': 'harbor',
+    'harbore': 'harbor',
     'soul': 'iso',
-    'hbir': 'harbour',
+    'hbir': 'harbor',
     'ovrd': 'veto',
     'kaio': 'kayo',
 }
@@ -34,7 +35,7 @@ ROLE_AGENT_STARS = {
     'initiator': {'sova', 'breach', 'skye'},
     'controller': {'omen', 'viper', 'brimstone'},
     'sentinel': {'sage', 'killjoy', 'chamber'},
-    'flex': {'kayo', 'astra', 'harbour', 'fade'}
+    'flex': {'kayo', 'astra', 'harbor', 'fade'}
 }
 
 REQUIRED_ROLES = {'duelist', 'initiator', 'controller', 'sentinel'}
@@ -47,8 +48,6 @@ ROLE_STAR_AGENTS = {
     'sentinel': {'sage', 'killjoy', 'chamber'},
     'flex': {'kayo', 'astra', 'harbor'}
 }
-
-REQUIRED_ROLES = {'duelist', 'initiator', 'controller', 'sentinel', 'flex'}
 
 
 class RoleBalanceEngine:

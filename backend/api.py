@@ -14,6 +14,7 @@ from src.scoring.map_score import MapScoreEngine
 from src.scoring.chemistry import ChemistryEngine
 from src.scoring.role_balance import RoleBalanceEngine
 from src.models.baseline_model import BaselineModel
+from src.models.prediction_engine import PredictionEngine
 
 
 class MatchPredictRequest(BaseModel):
@@ -44,6 +45,26 @@ app.add_middleware(
 # ------------------------------------------------------------------
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
 
+# Map normalization: accept common variants, canonicalize to dataset naming.
+# IMPORTANT: canonical form should match the `Map` strings produced by `MapScoreEngine.build()`.
+MAP_NAME_ALIASES: Dict[str, str] = {
+    # common casing/whitespace handled by normalize_map_name()
+    'ice box': 'Icebox',
+}
+
+
+def normalize_map_name(map_name: str) -> str:
+    if map_name is None:
+        return ''
+    key = str(map_name).strip()
+    if not key:
+        return ''
+    # normalize to "Title" but preserve internal spacing
+    key_norm = " ".join(key.split()).lower()
+    if key_norm in MAP_NAME_ALIASES:
+        return MAP_NAME_ALIASES[key_norm]
+    return " ".join([w.capitalize() for w in key_norm.split(" ")])
+
 loader = VCTDataLoader(data_dir=DATA_DIR)
 ov = loader.load_overviews()
 kills = loader.load_kills_stats()
@@ -57,8 +78,21 @@ if 'Year' not in ov.columns:
 cleaner = VCTCleaner()
 
 # Merge with kills to ensure all metrics in player scorer
-join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Agents', 'Year']
-merged = pd.merge(ov, kills, on=join_cols, how='inner')
+base_join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Year']
+join_cols = [c for c in base_join_cols if c in ov.columns and c in kills.columns]
+if not join_cols:
+    raise RuntimeError("No common join columns found between overview and kills_stats.")
+
+# Use a left join to avoid silent row loss when kills_stats is missing for some matches.
+merged = pd.merge(ov, kills, on=join_cols, how='left', suffixes=('', '_kills'))
+
+# Ensure `Agents` column exists post-merge (prefer overview's Agents)
+if 'Agents' not in merged.columns:
+    # common case: overview had Agents, but got suffixes from merge
+    if 'Agents_x' in merged.columns:
+        merged['Agents'] = merged['Agents_x']
+    elif 'Agents_y' in merged.columns:
+        merged['Agents'] = merged['Agents_y']
 clean_df = cleaner.clean_overviews(merged)
 
 scorer = PlayerScorer()
@@ -78,9 +112,18 @@ player_summary = scored_df.groupby('Player').agg(
 map_engine = MapScoreEngine()
 map_engine.build(clean_df, maps_scores)
 
+# Supported map set based on what actually exists in the built table.
+try:
+    SUPPORTED_MAPS = sorted(
+        list(map_engine._player_map_table.index.get_level_values('Map').unique())  # type: ignore[attr-defined]
+    )
+except Exception:
+    SUPPORTED_MAPS = []
+
 # Build chemistry engine based on all matches
 chem_engine = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
 role_engine = RoleBalanceEngine()
+pred_engine = PredictionEngine()
 
 # Historical agent mapping per player (most common agent used)
 agent_lookup = (
@@ -226,6 +269,13 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
     per_player = [_get_player_stats(p) for p in resolved_players]
     mech_values = [p['mech_mean'] for p in per_player]
 
+    canonical_map = normalize_map_name(map_name)
+    if SUPPORTED_MAPS and canonical_map not in SUPPORTED_MAPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown map '{map_name}'. Supported maps: {SUPPORTED_MAPS}"
+        )
+
     team_features = {
         'mech_mean': float(np.mean(mech_values)),
         'mech_max': float(np.max(mech_values)),
@@ -235,29 +285,34 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
         'util_mean': float(np.mean([p['util_mean'] for p in per_player])),
         'eco_mean': float(np.mean([p['eco_mean'] for p in per_player])),
         'consistency': float(np.mean([p['consistency_mean'] for p in per_player])),
-        'map_score': float(map_engine.get_team_map_score(resolved_players, map_name)),
+        'map_score': float(map_engine.get_team_map_score(resolved_players, canonical_map)),
         'chemistry': float(chem_engine.get_team_chemistry_score(resolved_players)),
         'role_balance': float(role_engine.compute_team_role_balance([agent_lookup.get(p, 'Unknown') for p in resolved_players])),
     }
 
-    return team_features
+    return pred_engine.apply_modifiers(team_features, fmt=format, stage=stage)
 
 
 def player_matchup_analysis(team_a: List[str], team_b: List[str], map_name: str) -> Dict:
+    canonical_map = normalize_map_name(map_name)
     analysis = []
     for pa, pb in zip(team_a, team_b):
         resolved_pa = resolve_player_name(pa) or pa
         resolved_pb = resolve_player_name(pb) or pb
-        score_a = map_engine.get_player_map_score(resolved_pa, map_name)['map_score']
-        score_b = map_engine.get_player_map_score(resolved_pb, map_name)['map_score']
+        score_a = map_engine.get_player_map_score(resolved_pa, canonical_map)['map_score']
+        score_b = map_engine.get_player_map_score(resolved_pb, canonical_map)['map_score']
+        if score_a == score_b:
+            advantage = 'E'
+        else:
+            advantage = 'A' if score_a > score_b else 'B'
         analysis.append({
             'player_a': pa,
             'player_b': pb,
             'map_score_a': score_a,
             'map_score_b': score_b,
-            'advantage': 'A' if score_a >= score_b else 'B'
+            'advantage': advantage
         })
-    return {'map': map_name, 'player_matchups': analysis}
+    return {'map': canonical_map, 'player_matchups': analysis}
 
 
 @app.post('/predict/match')
@@ -287,7 +342,12 @@ def predict_match(req: MatchPredictRequest):
 
     map_results = []
     for map_name_in in map_pool:
-        map_name = map_name_in.title()
+        map_name = normalize_map_name(map_name_in)
+        if SUPPORTED_MAPS and map_name not in SUPPORTED_MAPS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown map '{map_name_in}'. Supported maps: {SUPPORTED_MAPS}"
+            )
         fa = build_team_features(team_a, map_name, req.stage, req.format)
         fb = build_team_features(team_b, map_name, req.stage, req.format)
         pred = model.predict_match(fa, fb)
@@ -348,7 +408,7 @@ def player_detail(name: str):
         'agent': agent_lookup.get(resolved, 'Unknown'),
         'map_scores': {
             m: map_engine.get_player_map_score(resolved, m)['map_score']
-            for m in ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus', 'Pearl', 'Fracture', 'Sunset', 'Abyss', 'Corrode']
+            for m in (SUPPORTED_MAPS if SUPPORTED_MAPS else ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze'])
         }
     }
     return res

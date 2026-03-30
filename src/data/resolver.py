@@ -36,17 +36,24 @@ class VCTResolver:
             
         if self.team_mappings is None:
             return None
-            
-        # Example logic: in a real scenario, you iterate the mapping
-        # and match the best candidate. For now, returning placeholder
-        return "resolved_id"
+
+        # This depends on the exact schema of `all_teams_mapping.csv`.
+        # Refuse to return placeholder IDs (silent join corruption risk).
+        raise NotImplementedError(
+            "Team ID resolution is not implemented. "
+            "Implement lookup against all_teams_mapping.csv schema."
+        )
 
     def resolve_player_id(self, player_name: str) -> str:
         """Looks up a player's ID securely."""
         if player_name == "nan" or player_name == "":
             return None
-        # Placeholder implementation
-        return "resolved_player_id"
+        # This depends on the exact schema of `all_players_ids.csv`.
+        # Refuse to return placeholder IDs (silent join corruption risk).
+        raise NotImplementedError(
+            "Player ID resolution is not implemented. "
+            "Implement lookup against all_players_ids.csv schema."
+        )
 
 if __name__ == "__main__":
     resolver = VCTResolver()
