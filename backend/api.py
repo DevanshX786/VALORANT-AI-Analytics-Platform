@@ -244,6 +244,14 @@ if not tier_rosters_df.empty:
 
 player_summary_lower = {p.lower(): p for p in player_summary.keys()}
 
+
+def get_all_current_rosters() -> Dict[str, List[str]]:
+    if not tier_rosters_df.empty:
+        grouped = tier_rosters_df.groupby(tier_rosters_df['team_name'].astype(str).str.strip().str.title())['player_name']
+        return {team: [str(p).strip() for p in players if str(p).strip()] for team, players in grouped}
+    return {}
+
+
 def resolve_player_name(player_identifier: str) -> Optional[str]:
     if not player_identifier: return None
     ident = str(player_identifier).strip().lower()
