@@ -119,28 +119,33 @@ def apply_series_pressure_adjustment(prob_a: float, fmt: str, team_a_wins: int, 
 # Priority 1: Load precomputed pickles (Production/Cloud)
 # Priority 2: Fallback to raw 1GB CSV ingestion (Local Dev)
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Global Resource Loading (Hybrid Ultra-Lite Flow for 512MB RAM)
+# ------------------------------------------------------------------
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
-SUMMARY_PATH = os.path.join(MODELS_DIR, 'player_summary.pkl')
-ENGINE_PATH = os.path.join(MODELS_DIR, 'map_engine.pkl')
-CHEMISTRY_PATH = os.path.join(MODELS_DIR, 'chemistry_engine.pkl')
+ULTRA_LITE_PATH = os.path.join(MODELS_DIR, 'vct_production.all.pkl')
 
-player_summary = None
-map_engine = None
-chem_engine = None
-SUPPORTED_MAPS = []
+player_summary = {}      # dict lookup
+map_lookup = {}          # dict lookup {(player, map): stats}
+chem_history = {}        # dict lookup
+agent_lookup = {}        # dict lookup
+ELITE_MECH_THRESHOLD = 45.0
+SUPPORTED_MAPS = ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus', 'Pearl', 'Fracture', 'Sunset', 'Abyss', 'Corrode']
 
-if os.path.exists(SUMMARY_PATH) and os.path.exists(ENGINE_PATH) and os.path.exists(CHEMISTRY_PATH):
+if os.path.exists(ULTRA_LITE_PATH):
     import pickle
-    print(f"[Sync Engine] Production-Lite detected. Loading precomputed intelligence...")
-    with open(SUMMARY_PATH, 'rb') as f:
-        player_summary = pickle.load(f)
-    with open(ENGINE_PATH, 'rb') as f:
-        map_engine = pickle.load(f)
-    with open(CHEMISTRY_PATH, 'rb') as f:
-        chem_engine = pickle.load(f)
-    print(f"[Sync Engine] Success. {len(player_summary)} players, {len(map_engine._player_map_table.index.get_level_values('Map').unique())} maps, and {len(chem_engine._pair_history)} chemistry pairs ready.")
+    print(f"[Sync Engine] Ultra-Lite Production Mode detected. Purging heavy Pandas requirements...")
+    print(f"[Sync Engine] Ultra-Lite Mode detect. Purging heavy Pandas requirements...")
+    with open(ULTRA_LITE_PATH, 'rb') as f:
+        pkg = pickle.load(f)
+        player_summary = pkg['player_summary']
+        map_lookup = pkg['map_lookup']
+        chem_history = pkg['chemistry_history']
+        agent_lookup = pkg['agent_lookup']
+        ELITE_MECH_THRESHOLD = pkg['metadata']['elite_quantile_95']
+    print(f"[Sync Engine] Success. {len(player_summary)} players and {len(map_lookup)} map profiles ready in RAM.")
 else:
-    print(f"[Sync Engine] No pickles found. Running full 1.3GB ingestion (Local Dev Only)...")
+    print(f"[Sync Engine] No Ultra-Lite package found. Running full 1.3GB ingestion (Local Dev Only)...")
     loader = VCTDataLoader(data_dir=DATA_DIR)
     ov = loader.load_overviews()
     kills = loader.load_kills_stats()
@@ -149,13 +154,8 @@ else:
     cleaner = VCTCleaner()
     base_join_cols = ['Match Name', 'Map', 'Player', 'Team', 'Year']
     join_cols = [c for c in base_join_cols if c in ov.columns and c in kills.columns]
-    if not join_cols:
-        # Fallback for empty data environments
-        player_summary = pd.DataFrame()
-        map_engine = MapScoreEngine()
-        from src.scoring.chemistry import ChemistryEngine
-        chem_engine = ChemistryEngine(pd.DataFrame(columns=['Match Name', 'Team', 'Player', 'Year']))
-    else:
+    
+    if join_cols:
         merged = pd.merge(ov, kills, on=join_cols, how='left', suffixes=('', '_kills'))
         if 'Agents' not in merged.columns:
             if 'Agents_x' in merged.columns: merged['Agents'] = merged['Agents_x']
@@ -171,31 +171,46 @@ else:
             util_mean=('Utility_Score', 'mean'),
             eco_mean=('Economic_Score', 'mean'),
             consistency_mean=('Consistency_Score', 'mean')
-        ).reset_index().set_index('Player')
+        ).to_dict('index')
         
-        map_engine = MapScoreEngine()
-        map_engine.build(clean_df, maps_scores)
+        map_engine_tmp = MapScoreEngine()
+        map_engine_tmp.build(clean_df, maps_scores)
+        map_lookup = map_engine_tmp._player_map_table.to_dict('index')
         
-        from src.scoring.chemistry import ChemistryEngine
-        chem_engine = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
+        chem_engine_tmp = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
+        chem_history = chem_engine_tmp._pair_history
 
-# Establish Dynamic Superstar Threshold on startup
-if player_summary is not None and not player_summary.empty:
-    ELITE_MECH_THRESHOLD = float(player_summary['mech_mean'].quantile(0.95))
-    print(f"[Dynamic Scaling] Elite Superstar Threshold established at: {ELITE_MECH_THRESHOLD:.2f}")
-else:
-    ELITE_MECH_THRESHOLD = 45.0 # Fallback
+        agent_lookup = (
+            clean_df.groupby('Player')['Agents']
+            .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else 'Unknown')
+            .to_dict()
+        )
+        ELITE_MECH_THRESHOLD = float(scored_df.groupby('Player')['Mechanical_Score'].mean().quantile(0.95))
+
+# --- Ultra-Lite Wrappers for Production Efficiency ---
+class ProMapEngine:
+    def get_player_map_score(self, player, m):
+        return map_lookup.get((player, m), {'map_score': 10.0, 'map_acs_mean': 180.0, 'map_kd_mean': 0.9})
+    def get_team_map_score(self, players, m):
+        scores = [self.get_player_map_score(p, m)['map_score'] for p in players]
+        return np.mean(scores) if scores else 10.0
+
+class ProChemEngine:
+    FLOOR = 0.60
+    def get_roster_chemistry(self, players):
+        if len(players) < 2: return {'chemistry_score': self.FLOOR}
+        counts = []
+        for pair in combinations(players, 2):
+            counts.append(chem_history.get(frozenset(pair), 0))
+        avg_m = np.mean(counts)
+        score = 0.6 + (min(avg_m, 20) / 20.0) * 0.35
+        return {'chemistry_score': float(score)}
+
+map_engine = ProMapEngine()
+chem_engine = ProChemEngine()
 role_engine = RoleBalanceEngine()
 pred_engine = PredictionEngine()
 
-# Historical agent mapping per player (most common agent used)
-agent_lookup = (
-    clean_df.groupby('Player')['Agents']
-    .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else 'Unknown')
-    .to_dict()
-)
-
-# Load or create model
 model = BaselineModel()
 model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'baseline_xgb.json')
 if os.path.exists(model_path):
@@ -204,193 +219,76 @@ else:
     raise RuntimeError('Trained model file not found: ' + model_path)
 
 # ------------------------------------------------------------------
-# Load current roster table (tier1_rosters.csv) and mapping helpers
+# Resource Resolution Helpers
 # ------------------------------------------------------------------
 TIER1_ROSTERS_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'tier1_rosters.csv')
 
-
 def _load_tier1_rosters() -> pd.DataFrame:
-    if not os.path.exists(TIER1_ROSTERS_PATH):
-        return pd.DataFrame()
+    if not os.path.exists(TIER1_ROSTERS_PATH): return pd.DataFrame()
     try:
         return pd.read_csv(TIER1_ROSTERS_PATH, encoding='latin1', keep_default_na=False)
-    except Exception:
+    except:
         return pd.read_csv(TIER1_ROSTERS_PATH, encoding='utf-8', errors='ignore', keep_default_na=False)
 
-
-tier1_rosters_df = _load_tier1_rosters()
-
-# roster_lookup maps lowercase name/id -> canonical player_name
+tier_rosters_df = _load_tier1_rosters()
 roster_lookup: Dict[str, str] = {}
-for _, r in tier1_rosters_df.iterrows():
-    player_name = str(r.get('player_name', '')).strip()
-    if player_name:
-        roster_lookup[player_name.lower()] = player_name
-    # player_id(s)
-    for id_col in ['player_id', 'player_id_mapped', 'mapped_ids']:
-        if id_col in r and r[id_col] not in [None, '', float('nan')]:
-            ids = str(r[id_col]).split(',')
-            for id_val in ids:
-                clean_id = str(id_val).strip()
-                if clean_id:
-                    roster_lookup[clean_id.lower()] = player_name
+if not tier_rosters_df.empty:
+    for _, r in tier_rosters_df.iterrows():
+        p_name = str(r.get('player_name', '')).strip()
+        if p_name: roster_lookup[p_name.lower()] = p_name
+        for i_col in ['player_id', 'player_id_mapped', 'mapped_ids']:
+            if i_col in r and r[i_col] not in [None, '', float('nan')]:
+                for id_val in str(r[i_col]).split(','):
+                    clean_id = str(id_val).strip()
+                    if clean_id: roster_lookup[clean_id.lower()] = p_name
 
-# map all existing participants to lowercase normalization
-player_summary_lower = {p.lower(): p for p in player_summary.index}
-
+player_summary_lower = {p.lower(): p for p in player_summary.keys()}
 
 def resolve_player_name(player_identifier: str) -> Optional[str]:
-    if player_identifier is None:
-        return None
-    ident = str(player_identifier).strip()
-    if not ident:
-        return None
-
-    # Dataset Imposter Override: intercept 'f0rsaken' so it skips the dummy Sova account in the index 
-    # and properly locks onto the Jett/Flex PRX superstar 'f0rsakeN'
-    if ident.lower() == 'f0rsaken':
-        return 'f0rsakeN'
-
-    # exact dictionary key
-    if ident in player_summary.index:
-        return ident
-
-    key = ident.lower()
-    if key in player_summary_lower:
-        return player_summary_lower[key]
-    if key in roster_lookup:
-        return roster_lookup[key]
-
-    # numeric conflict or extra characters
-    if key.isdigit() and key in roster_lookup:
-        return roster_lookup[key]
-
+    if not player_identifier: return None
+    ident = str(player_identifier).strip().lower()
+    if ident in roster_lookup: return roster_lookup[ident]
+    if ident in player_summary_lower: return player_summary_lower[ident]
     return None
 
-
-def get_current_roster_by_team(team_name: str) -> List[str]:
-    """
-    Strict Census-Driven Roster Selection.
-    Only returns players explicitly listed for this team in tier1_rosters.csv.
-    If the CSV has more than 5 players (e.g. subs/archives), it prioritizes the 5 
-    with the most historical match presence in the current dataset.
-    """
-    if not team_name or tier1_rosters_df.empty:
-        return []
-
-    # Filter CSV for this exact team
-    team_data = tier1_rosters_df[tier1_rosters_df['team_name'].astype(str).str.lower() == team_name.lower()]
-    if team_data.empty:
-        return []
-
-    # Extract player names from the user's provided Census
-    census_players = [str(x).strip() for x in team_data['player_name'] if str(x).strip()]
-    
-    # If exactly 5 or fewer, return them all (strictly follow the user's list)
-    if len(census_players) <= 5:
-        return census_players
-
-    # If more than 5 (subs/coaches), prioritize the ones with most data in the engine
-    player_match_counts = {}
-    for p in census_players:
-        resolved = resolve_player_name(p)
-        if resolved and resolved in player_summary.index:
-            # Approximate 'activity' by looking at how much data we have
-            player_match_counts[p] = player_summary.loc[resolved].get('mech_mean', 0) # Use any stat as proxy
-        else:
-            player_match_counts[p] = 0
-    
-    # Sort and take top 5
-    sorted_players = sorted(census_players, key=lambda x: player_match_counts.get(x, 0), reverse=True)
-    return sorted_players[:5]
-
-
-def get_all_current_rosters() -> Dict[str, List[str]]:
-    if not tier1_rosters_df.empty:
-        grouped = tier1_rosters_df.groupby(tier1_rosters_df['team_name'].astype(str).str.strip().str.title())['player_name']
-        return {team: [str(p).strip() for p in players if str(p).strip()] for team, players in grouped}
-
-    # No static fallback roster; rely entirely on tier1_rosters.csv source
-    return {}
-
 def _get_player_stats(name: str) -> Dict[str, float]:
-    """
-    Omni-Stability Normalizer: High accuracy player scoring with a strictly 
-    enforced Pro-Baseline (22.0) and strategic role-buffs.
-    """
     resolved_name = resolve_player_name(name)
-    stats = {}
+    stats = player_summary.get(resolved_name or name, {
+        'mech_mean': 12.0, 'clutch_mean': 2.0, 'entry_mean': 10.0,
+        'util_mean': 3.0, 'eco_mean': 5.0, 'consistency_mean': 5.0,
+    }).copy()
 
-    if resolved_name and resolved_name in player_summary.index:
-        row = player_summary.loc[resolved_name]
-        stats = {
-            'mech_mean': float(row['mech_mean']),
-            'clutch_mean': float(row['clutch_mean']),
-            'entry_mean': float(row['entry_mean']),
-            'util_mean': float(row['util_mean']),
-            'eco_mean': float(row['eco_mean']),
-            'consistency_mean': float(row['consistency_mean']),
-        }
-    else:
-        # Standard Generic/Amateur Floor
-        stats = {
-            'mech_mean': 12.0,
-            'clutch_mean': 2.0,
-            'entry_mean': 10.0,
-            'util_mean': 3.0,
-            'eco_mean': 5.0,
-            'consistency_mean': 5.0,
-        }
-
-    # 1. ABSOLUTE PRO-CENSUS BASELINE (Strict 22.0 Floor)
-    # Check if they are in the user's primary Tier-1 Census CSV.
     is_t1 = name.lower() in roster_lookup or (resolved_name and resolved_name.lower() in roster_lookup)
     if is_t1:
-        stats['mech_mean'] = max(stats['mech_mean'], 22.0)
-        stats['mech_mean'] += 5.0 # Census-Validated Pro Bonus
+        stats['mech_mean'] = max(stats['mech_mean'], 22.0) + 5.0
         stats['clutch_mean'] += 2.0
         stats['util_mean'] += 2.0
 
-    # 2. DYNAMIC ROLE BUFFS (Strategic vs Firepower)
     agent = agent_lookup.get(resolved_name or name, 'Unknown')
     role = role_engine.assign_role(agent)
     
     role_offset = 0.0
     if role in ('controller', 'sentinel'):
-        role_offset = 15.0 # Strategic Gamesense Buffer
-        stats['util_mean'] += 6.0
+        role_offset, stats['util_mean'] = 15.0, stats['util_mean'] + 6.0
     elif role == 'initiator':
-        role_offset = 10.0 # Utility Logic Buffer
-        stats['util_mean'] += 4.0
+        role_offset, stats['util_mean'] = 10.0, stats['util_mean'] + 4.0
     elif role == 'duelist':
-        role_offset = 2.0 # Standard T1 Duelist multiplier
+        role_offset = 2.0
     
-    # Apply standard role offset to the baseline
     stats['mech_mean'] += role_offset
-
-    # 3. ELITE TALENT ANALYSIS (No Hardcoding)
-    # A player is automatically considered 'Elite' if they score in the 
-    # top 5% of the entire database (95th percentile).
     if stats['mech_mean'] >= ELITE_MECH_THRESHOLD:
-        # Guarantee superstar floor if they are near the tipping point
         stats['mech_mean'] = max(stats['mech_mean'], 45.0)
     
-    # Final consistency check: Map mechanical mean to the raw magnitude
-    # No more hard clamp; we trust the 'Magnitude Sync' now.
     return stats
 
 def build_team_features(players: List[str], map_name: str, stage: str, format: str) -> Dict[str, float]:
-    # avoid repeats; keep 5 players as provided
     players = list(dict.fromkeys(players))[:5]
-    resolved_players = []
-    for p in players:
-        resolved = resolve_player_name(p)
-        resolved_players.append(resolved if resolved else str(p).strip())
+    resolved_players = [resolve_player_name(p) or str(p).strip() for p in players]
 
     per_player = [_get_player_stats(p) for p in resolved_players]
     mech_values = [p['mech_mean'] for p in per_player]
-    
     canonical_map = normalize_map_name(map_name)
+    
     team_features = {
         'mech_mean': float(np.mean(mech_values)),
         'mech_max': float(np.max(mech_values)),
@@ -402,56 +300,37 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
         'consistency': float(np.mean([p['consistency_mean'] for p in per_player])),
         'map_score': float(map_engine.get_team_map_score(resolved_players, canonical_map)),
         'chemistry': float(chem_engine.get_roster_chemistry(resolved_players)['chemistry_score']),
-        'role_balance': float(role_engine.compute_team_role_balance(resolved_players)),
+        'role_balance': float(role_engine.compute_team_role_balance([agent_lookup.get(p, 'Unknown') for p in resolved_players])),
         'format_modifier': 1.0 if format == 'Bo1' else 1.15 if format == 'Bo3' else 1.25,
         'stage_modifier': 1.2 if stage == 'Playoffs' else 1.0
     }
     
-    # Superteam Resilience Override: 
-    # High-skill teams automatically bypass chemistry/role penalties.
     if team_features['mech_mean'] > 31:
-        team_features['chemistry'] = 0.95
-        team_features['role_balance'] = 100.0
+        team_features['chemistry'], team_features['role_balance'] = 0.95, 100.0
     elif team_features['mech_mean'] > 28:
-        team_features['chemistry'] = round(0.5 * team_features['chemistry'] + 0.5 * 0.9, 4)
-        team_features['role_balance'] = round(0.5 * team_features['role_balance'] + 0.5 * 90.0, 2)
+        team_features['chemistry'] = round(0.5 * team_features['chemistry'] + 0.45, 4)
+        team_features['role_balance'] = round(0.5 * team_features['role_balance'] + 45.0, 2)
 
     return pred_engine.apply_modifiers(team_features, fmt=format, stage=stage)
 
 
 def player_matchup_analysis(team_a: list, team_b: list, map_name: str) -> dict:
-    """
-    Synchronized Analysis: Uses the same 'OMNI' stats as the prediction engine
-    to ensure the bars in the report match the final win probability logic.
-    """
     canonical_map = normalize_map_name(map_name)
     analysis = []
     
     for pa_name, pb_name in zip(team_a, team_b):
-        # Use our OMNI stats function instead of raw map engine to ensure consistency!
-        stats_a = _get_player_stats(pa_name)
-        stats_b = _get_player_stats(pb_name)
-        
-        # Take the mechanical score (which includes Role/T1 bonuses) 
-        # then tweak slightly by map-specific map_score to maintain map diversity.
-        base_a = stats_a['mech_mean']
-        base_b = stats_b['mech_mean']
+        stats_a, stats_b = _get_player_stats(pa_name), _get_player_stats(pb_name)
+        base_a, base_b = stats_a['mech_mean'], stats_b['mech_mean']
         
         map_adj_a = map_engine.get_player_map_score(pa_name, canonical_map)['map_score'] / 100.0
         map_adj_b = map_engine.get_player_map_score(pb_name, canonical_map)['map_score'] / 100.0
         
-        # Final Display Score = Balanced Potential + Real Map Performance
-        final_a = round(base_a + (map_adj_a * 10), 2)
-        final_b = round(base_b + (map_adj_b * 10), 2)
-        
+        final_a, final_b = round(base_a + (map_adj_a * 10), 2), round(base_b + (map_adj_b * 10), 2)
         advantage = 'E' if final_a == final_b else 'A' if final_a > final_b else 'B'
         
         analysis.append({
-            'player_a': pa_name,
-            'player_b': pb_name,
-            'map_score_a': final_a,
-            'map_score_b': final_b,
-            'advantage': advantage
+            'player_a': pa_name, 'player_b': pb_name,
+            'map_score_a': final_a, 'map_score_b': final_b, 'advantage': advantage
         })
     return {'map': canonical_map, 'player_matchups': analysis}
 
