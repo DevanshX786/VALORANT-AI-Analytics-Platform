@@ -350,7 +350,16 @@ def player_matchup_analysis(team_a: list, team_b: list, map_name: str) -> dict:
             'player_a': pa_name, 'player_b': pb_name,
             'map_score_a': final_a, 'map_score_b': final_b, 'advantage': advantage
         })
-    return {'map': canonical_map, 'player_matchups': analysis}
+    
+    sweep_a = all(m['advantage'] == 'A' for m in analysis)
+    sweep_b = all(m['advantage'] == 'B' for m in analysis)
+    
+    return {
+        'map': canonical_map, 
+        'player_matchups': analysis,
+        'is_sweep_a': sweep_a,
+        'is_sweep_b': sweep_b
+    }
 
 
 @app.post('/predict/match')
@@ -527,46 +536,48 @@ class AIStrategicAnalyst:
         return 'C'
 
     @staticmethod
-    def get_expert_verdict(team_a: str, team_b: str, fa: Dict, fb: Dict) -> Dict:
+    def get_expert_verdict(team_a: str, team_b: str, fa: Dict, fb: Dict, is_sweep: bool = False) -> Dict:
         # Calculate Tiers dynamically based on the stats in the request
         tier_a = AIStrategicAnalyst.calculate_tier(fa['mech_mean'], fa['chemistry'], [])
         tier_b = AIStrategicAnalyst.calculate_tier(fb['mech_mean'], fb['chemistry'], [])
         
         # 1. TIER BIAS (The Reputation Factor)
-        # S=1.05, A=1.025, B=1.0, C=0.98 (Dampened for 2026 Neutrality)
         multiplier = {'S': 1.05, 'A': 1.025, 'B': 1.0, 'C': 0.98}
         res_a = multiplier[tier_a]
         res_b = multiplier[tier_b]
         
-        # 2. CHEMISTRY REASONING (Logic over Stats)
+        # 2. CHEMISTRY REASONING
         chem_a = fa.get('chemistry', 0.6)
         chem_b = fb.get('chemistry', 0.6)
         
         # 3. VERDICT GENERATION
         expert_win_prob_a = 0.5 + (res_a - res_b) + (chem_a - chem_b) * 0.15
-        expert_win_prob_a = max(min(expert_win_prob_a, 0.85), 0.15)
+        
+        # DOMINATION GUARDRAIL:
+        # Only allow below 20% (to 15%) if it's a 5-0 player sweep.
+        floor = 0.15 if is_sweep else 0.20
+        ceiling = 0.85 if is_sweep else 0.80
+        
+        expert_win_prob_a = max(min(expert_win_prob_a, ceiling), floor)
         
         # 4. ANALYST NOTE (The Conclusion)
-        note = ""
         if tier_a == 'S' and tier_b != 'S':
-            verdict = f"Analyst Verdict: {team_a} has successfully built an S-Tier 'Superteam' for the 2026 season. Their synergy and raw firepower outclass the {team_b} roster."
-        elif chem_a > chem_b + 0.15:
-            verdict = f"Neutrality Factor: The power balance has shifted. {team_a} holds a massive strategic advantage due to their superior chemistry in this 'Neutral' 2026 era."
+            verdict = f"Analyst Verdict: {team_a} has built an S-Tier 'Superteam'. Their raw firepower outclasses the {team_b} roster."
+        elif is_sweep:
+            verdict = f"Absolute Domination: {team_a} holds a mechanical advantage in EVERY individual matchup. {team_b} has no clear win-condition."
         elif abs(chem_a - chem_b) < 0.05:
-            verdict = f"Final Verdict: Perfectly balanced 2026 matchup. Neither team holds a 'Legacy King' advantage; the series will likely be decided by individual map heroics."
+            verdict = f"Final Verdict: Perfectly balanced matchup. The series will likely be decided by individual map heroics."
         else:
-            verdict = f"A realistic 2026 estimation: The AI Analyst identifies {team_a} as the marginal favorite based on their slightly more disciplined 5-man core."
+            verdict = f"A realistic estimation: The AI Analyst identifies {team_a} as the favorite based on their slightly more disciplined core."
 
-        # Real-World Consistency Check: 
-        # Even with a stats landslide, no pro squad has < 15% chance in Bo3.
-        # 15% indicates 'Absolute Domination' by the opponent.
-        expert_a = max(0.15, min(0.85, expert_win_prob_a))
+        expert_a = max(floor, min(ceiling, expert_win_prob_a))
         return {
             'expert_win_prob_a': round(expert_a * 100, 2),
             'expert_win_prob_b': round((1.0 - expert_a) * 100, 2),
             'verdict': verdict,
             'team_a_tier': tier_a,
-            'team_b_tier': tier_b
+            'team_b_tier': tier_b,
+            'is_sweep': is_sweep
         }
 
 
@@ -616,7 +627,12 @@ def predict_team_vs_team(
     # Re-calculate features briefly for the analyst
     fa_mock = build_team_features(team_a_roster, map_pool[0], stage, format)
     fb_mock = build_team_features(team_b_roster, map_pool[0], stage, format)
-    expert = AIStrategicAnalyst.get_expert_verdict(team_a, team_b, fa_mock, fb_mock)
+    
+    # Check for Absolute Domination (Sweep) in Map 1
+    matchup_info = player_matchup_analysis(team_a_roster, team_b_roster, map_pool[0])
+    is_any_sweep = matchup_info['is_sweep_a'] or matchup_info['is_sweep_b']
+    
+    expert = AIStrategicAnalyst.get_expert_verdict(team_a, team_b, fa_mock, fb_mock, is_sweep=is_any_sweep)
     
     # 3. HYBRID BLEND (50/50 Consensus)
     ml_a = prediction['team_a_average_win_prob'] / 100.0
