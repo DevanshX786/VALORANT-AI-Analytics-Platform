@@ -146,6 +146,13 @@ if os.path.exists(ULTRA_LITE_PATH):
         ELITE_MECH_THRESHOLD = pkg['metadata']['elite_quantile_95']
     print(f"[Sync Engine] Success. {len(player_summary)} players and {len(map_lookup)} map profiles ready in RAM (Normalized).")
 else:
+    # --- FAIL-FAST PROTECTION for Render/Production ---
+    # We must NEVER run the 1.3GB ingestion on the 512MB RAM cloud tier.
+    if os.getenv('RENDER') or os.getenv('PORT'):
+        print(f"[CRITICAL] Ultra-Lite Production Package NOT FOUND at: {ULTRA_LITE_PATH}")
+        print(f"[CRITICAL] Please run 'scripts/export_lite_data.py' locally and PUSH to GitHub.")
+        raise RuntimeError(f"Missing Production Data (Ultra-Lite Package) at {ULTRA_LITE_PATH}")
+    
     print(f"[Sync Engine] No Ultra-Lite package found. Running full 1.3GB ingestion (Local Dev Only)...")
     loader = VCTDataLoader(data_dir=DATA_DIR)
     ov = loader.load_overviews()
