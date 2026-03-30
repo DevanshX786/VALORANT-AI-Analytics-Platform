@@ -301,16 +301,17 @@
   // ------------------------------------------------------------------
   const API_BASE = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' 
     ? 'http://127.0.0.1:8000' 
-    : 'https://vct-ai-platform.onrender.com'; // <- Update this after Render deployment
+    : 'https://valorant-ai-analytics-platform.onrender.com';
   
   // Initial Roster Fetch
   (async () => {
     try {
-      const res = await fetch(`${API_BASE}/predict/current-rosters`);
+      const res = await fetch(`${API_BASE}/rosters`);
       if(res.ok) {
         const data = await res.json();
         const dl = document.getElementById('teamsList');
-        Object.keys(data).forEach(team => {
+        dl.innerHTML = ''; // Clear fallback
+        (data.teams || []).forEach(team => {
           const opt = document.createElement('option');
           opt.value = team;
           dl.appendChild(opt);
