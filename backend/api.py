@@ -544,7 +544,7 @@ class AIStrategicAnalyst:
         
         # 3. VERDICT GENERATION
         expert_win_prob_a = 0.5 + (res_a - res_b) + (chem_a - chem_b) * 0.15
-        expert_win_prob_a = max(min(expert_win_prob_a, 0.70), 0.30)
+        expert_win_prob_a = max(min(expert_win_prob_a, 0.85), 0.15)
         
         # 4. ANALYST NOTE (The Conclusion)
         note = ""
