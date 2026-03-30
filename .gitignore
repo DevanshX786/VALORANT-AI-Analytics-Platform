@@ -25,6 +25,10 @@ env/
 /models/*.joblib
 /models/*.pkl
 
+# Special Exemption: These are required for Render Production
+!/models/baseline_xgb.json
+!/models/vct_production.all.pkl
+
 # OS
 .DS_Store
 Thumbs.db
