@@ -138,12 +138,13 @@ if os.path.exists(ULTRA_LITE_PATH):
     print(f"[Sync Engine] Ultra-Lite Mode detect. Purging heavy Pandas requirements...")
     with open(ULTRA_LITE_PATH, 'rb') as f:
         pkg = pickle.load(f)
-        player_summary = pkg['player_summary']
-        map_lookup = pkg['map_lookup']
+        # Force-normalize all keys to lowercase for foolproof lookup
+        player_summary = {k.lower(): v for k, v in pkg['player_summary'].items()}
+        map_lookup = { (k[0].lower(), k[1]): v for k, v in pkg['map_lookup'].items() }
         chem_history = pkg['chemistry_history']
-        agent_lookup = pkg['agent_lookup']
+        agent_lookup = {k.lower(): v for k, v in pkg['agent_lookup'].items()}
         ELITE_MECH_THRESHOLD = pkg['metadata']['elite_quantile_95']
-    print(f"[Sync Engine] Success. {len(player_summary)} players and {len(map_lookup)} map profiles ready in RAM.")
+    print(f"[Sync Engine] Success. {len(player_summary)} players and {len(map_lookup)} map profiles ready in RAM (Normalized).")
 else:
     print(f"[Sync Engine] No Ultra-Lite package found. Running full 1.3GB ingestion (Local Dev Only)...")
     loader = VCTDataLoader(data_dir=DATA_DIR)
@@ -255,13 +256,15 @@ def get_all_current_rosters() -> Dict[str, List[str]]:
 def resolve_player_name(player_identifier: str) -> Optional[str]:
     if not player_identifier: return None
     ident = str(player_identifier).strip().lower()
-    if ident in roster_lookup: return roster_lookup[ident]
-    if ident in player_summary_lower: return player_summary_lower[ident]
+    if ident in roster_lookup: return roster_lookup[ident].lower()
+    if ident in player_summary: return ident
     return None
 
 def _get_player_stats(name: str) -> Dict[str, float]:
-    resolved_name = resolve_player_name(name)
-    stats = player_summary.get(resolved_name or name, {
+    name_low = str(name).strip().lower()
+    resolved_name = resolve_player_name(name_low) or name_low
+    
+    stats = player_summary.get(resolved_name, {
         'mech_mean': 12.0, 'clutch_mean': 2.0, 'entry_mean': 10.0,
         'util_mean': 3.0, 'eco_mean': 5.0, 'consistency_mean': 5.0,
     }).copy()
