@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import pandas as pd
 import numpy as np
 import os
@@ -200,7 +200,7 @@ class ProChemEngine:
     def get_roster_chemistry(self, players):
         if len(players) < 2: return {'chemistry_score': self.FLOOR}
         counts = []
-        for pair in combinations(players, 2):
+        for pair in itertools.combinations(players, 2):
             counts.append(chem_history.get(frozenset(pair), 0))
         avg_m = np.mean(counts)
         score = 0.6 + (min(avg_m, 20) / 20.0) * 0.35
