@@ -296,6 +296,29 @@
   let selectedMaps = [];
   const VALORANT_MAPS = ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus', 'Pearl', 'Fracture', 'Sunset', 'Abyss', 'Corrode'];
   
+  // ------------------------------------------------------------------
+  // ENVIRONMENT CONFIGURATION: Automatic Port/Host Detection
+  // ------------------------------------------------------------------
+  const API_BASE = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' 
+    ? 'http://127.0.0.1:8000' 
+    : 'https://vct-ai-platform.onrender.com'; // <- Update this after Render deployment
+  
+  // Initial Roster Fetch
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/predict/current-rosters`);
+      if(res.ok) {
+        const data = await res.json();
+        const dl = document.getElementById('teamsList');
+        Object.keys(data).forEach(team => {
+          const opt = document.createElement('option');
+          opt.value = team;
+          dl.appendChild(opt);
+        });
+      }
+    } catch (e) { console.warn("Roster fetch failed. Falling back to local data.", e); }
+  })();
+
   // Format Selection Logic
   document.querySelectorAll('#formatGroup .btn-white').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -390,7 +413,7 @@
 
     try {
       const qs = `?team_a=${encodeURIComponent(ta)}&team_b=${encodeURIComponent(tb)}&format=${currentFormat}&stage=${currentStage}`;
-      let url = 'http://127.0.0.1:8000/predict/team-vs-team' + qs;
+      let url = `${API_BASE}/predict/team-vs-team` + qs;
       selectedMaps.forEach(m => url += `&map_pool=${encodeURIComponent(m)}`);
       
       const res = await fetch(url);
