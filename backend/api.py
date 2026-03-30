@@ -634,13 +634,18 @@ def predict_team_vs_team(
     
     expert = AIStrategicAnalyst.get_expert_verdict(team_a, team_b, fa_mock, fb_mock, is_sweep=is_any_sweep)
     
-    # 3. HYBRID BLEND (50/50 Consensus)
+    # 3. HYBRID BLEND (Weighted Consensus)
     ml_a = prediction['team_a_average_win_prob'] / 100.0
     agent_a = float(expert['expert_win_prob_a']) / 100.0
     
-    # Dynamic Confidence: If ML is extreme, trust Agentic more to avoid 2% errors.
+    # DOMINATION WEIGHTING:
+    # If the Analyst sees a sweep or a major tier gap, lean HEAVILY (80%) 
+    # on the Expert Verdict to allow for "Visual Domination" in the UI.
     weight_ml = 0.5
-    if ml_a > 0.9 or ml_a < 0.1:
+    tier_gap = abs(ord(expert['team_a_tier']) - ord(expert['team_b_tier']))
+    if is_any_sweep or tier_gap >= 1:
+        weight_ml = 0.2 # 80% weight to Agentic AI
+    elif ml_a > 0.9 or ml_a < 0.1:
         weight_ml = 0.3 # Dampen the ML radicalism
         
     hybrid_a = (ml_a * weight_ml) + (agent_a * (1.0 - weight_ml))
