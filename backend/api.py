@@ -65,6 +65,57 @@ def normalize_map_name(map_name: str) -> str:
         return MAP_NAME_ALIASES[key_norm]
     return " ".join([w.capitalize() for w in key_norm.split(" ")])
 
+
+def apply_series_pressure_adjustment(
+    prob_a: float,
+    fmt: str,
+    team_a_wins: int,
+    team_b_wins: int
+) -> tuple[float, float]:
+    """
+    Apply a small state-aware adjustment for multi-map series.
+    Idea:
+      - trailing team gets a small "urgency" boost
+      - leading team gets a smaller "momentum/closing" boost
+    Net effect is intentionally small so it doesn't overpower core skill features.
+    Returns: (adjusted_prob_a, delta_applied_to_prob_a)
+    """
+    if fmt not in ('Bo3', 'Bo5'):
+        return prob_a, 0.0
+
+    wins_needed = 2 if fmt == 'Bo3' else 3
+    score_diff = team_a_wins - team_b_wins
+    if score_diff == 0:
+        return prob_a, 0.0
+
+    trailing_is_a = score_diff < 0
+    leader_wins = max(team_a_wins, team_b_wins)
+    is_elimination_map = leader_wins == (wins_needed - 1)
+
+    # Urgency: trailing team tries harder (slightly stronger effect).
+    urgency_base = 0.03 if fmt == 'Bo3' else 0.02
+    urgency_elim_bonus = 0.01 if is_elimination_map else 0.0
+    urgency = urgency_base + urgency_elim_bonus
+
+    # Momentum: leading team tends to close better / has confidence (smaller offsetting effect).
+    # This is strongest in Bo5 when up 2-0 (classic "sweep momentum" vs opponent desperation).
+    momentum = 0.0
+    if fmt == 'Bo5':
+        if (team_a_wins, team_b_wins) in [(2, 0), (0, 2)]:
+            momentum = 0.01
+        elif (team_a_wins, team_b_wins) in [(2, 1), (1, 2)]:
+            momentum = 0.005
+    elif fmt == 'Bo3':
+        if (team_a_wins, team_b_wins) in [(1, 0), (0, 1)]:
+            momentum = 0.005
+
+    # Convert to a delta on Team A probability.
+    # - If Team A is trailing: +urgency for A, but -momentum (since B is leading)
+    # - If Team A is leading: -urgency for B, but +momentum for A
+    delta = (urgency - momentum) if trailing_is_a else -(urgency - momentum)
+    adjusted = max(0.01, min(0.99, prob_a + delta))
+    return adjusted, delta
+
 loader = VCTDataLoader(data_dir=DATA_DIR)
 ov = loader.load_overviews()
 kills = loader.load_kills_stats()
@@ -341,7 +392,13 @@ def predict_match(req: MatchPredictRequest):
         raise HTTPException(status_code=400, detail='Bo5 requires at least 1 map.')
 
     map_results = []
+    team_a_series_wins = 0
+    team_b_series_wins = 0
+    wins_needed = 1 if req.format == 'Bo1' else 2 if req.format == 'Bo3' else 3
+
     for map_name_in in map_pool:
+        pre_a_wins = team_a_series_wins
+        pre_b_wins = team_b_series_wins
         map_name = normalize_map_name(map_name_in)
         if SUPPORTED_MAPS and map_name not in SUPPORTED_MAPS:
             raise HTTPException(
@@ -351,14 +408,32 @@ def predict_match(req: MatchPredictRequest):
         fa = build_team_features(team_a, map_name, req.stage, req.format)
         fb = build_team_features(team_b, map_name, req.stage, req.format)
         pred = model.predict_match(fa, fb)
+        base_prob_a = float(pred['team_a_win_prob'])
+        adj_prob_a, pressure_delta = apply_series_pressure_adjustment(
+            base_prob_a, req.format, pre_a_wins, pre_b_wins
+        )
+        adj_prob_b = 1.0 - adj_prob_a
+        predicted_winner = 'Team A' if adj_prob_a >= 0.5 else 'Team B'
+
+        # Advance predicted series state for subsequent map context.
+        if predicted_winner == 'Team A':
+            team_a_series_wins += 1
+        else:
+            team_b_series_wins += 1
 
         map_results.append({
             'map': map_name,
-            'team_a_win_prob': round(pred['team_a_win_prob'] * 100, 3),
-            'team_b_win_prob': round(pred['team_b_win_prob'] * 100, 3),
-            'predicted_winner': pred['predicted_winner'],
+            'team_a_win_prob': round(adj_prob_a * 100, 3),
+            'team_b_win_prob': round(adj_prob_b * 100, 3),
+            'predicted_winner': predicted_winner,
+            'series_state_before': f"{pre_a_wins}-{pre_b_wins}",
+            'pressure_adjustment_pct_points_for_team_a': round(pressure_delta * 100, 2),
             'player_matchup': player_matchup_analysis(team_a, team_b, map_name)
         })
+
+        # Stop once a team has clinched the series in Bo3/Bo5.
+        if req.format in ('Bo3', 'Bo5') and (team_a_series_wins >= wins_needed or team_b_series_wins >= wins_needed):
+            break
 
     # overall aggregator by averaging map odds
     team_a_avg = round(float(np.mean([r['team_a_win_prob'] for r in map_results])), 3)

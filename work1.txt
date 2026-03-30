@@ -278,6 +278,12 @@ STEP 9.1 - FastAPI team roster endpoint for frontend
   - Added /rosters endpoint in backend/api.py returning full team list and player arrays
   - UI now fetches /rosters on load and populates Team A/Team B dropdowns
 
+STEP 9.2 - Dynamic Series Pressure & Momentum Adjustment
+------------------------------------------------------------------------
+  - Added `apply_series_pressure_adjustment()` to the prediction flow.
+  - Logic: Trailing teams get 2-4% boost (urgency); leading teams get 0.5-1% (momentum).
+  - WHY: Accounts for psychological resilience and comeback potential in multi-map matches.
+
 STEP 10 - Basic frontend test harness (frontend/index.html)
 ------------------------------------------------------------------------
   - Team selector screens from roster endpoint
@@ -432,6 +438,11 @@ BUG FIXES & MAP SCORE PATCH (MODULE 1)
    - Updated `src/data/resolver.py` to raise `NotImplementedError` instead of returning placeholder IDs.
    - WHY: Placeholder IDs create silent join collisions and corrupt downstream scoring if used.
 
+9. Dynamic Series Momentum & Pressure Adjustment (Backend)
+   - Added `apply_series_pressure_adjustment()` in `backend/api.py`.
+   - Logic: Trailing teams in a series (Bo3/Bo5) receive an "urgency" boost (2-4%), while leading teams receive a smaller "momentum" boost (0.5-1%).
+   - WHY: Accounts for the psychological shift in multi-map series where the team facing elimination often overperforms their baseline.
+
 
 ================================================================================
 FORMULA REFERENCE (ALL CORE STATS)
@@ -530,6 +541,13 @@ MODEL INPUT / PREDICTION (src/models/baseline_model.py)
  36) prediction output
      prob_a = model.predict_proba(diff_row)[1]
      prob_b = 1 - prob_a
+
+SERIES STATE MODIFIERS (backend/api.py)
+ 37) Multi-map Pressure Adjustment
+     urgency  = 0.03 (Bo3) or 0.02 (Bo5) + 0.01 if elimination map
+     momentum = 0.01 (Bo5 sweep lead) or 0.005 (general lead)
+     delta    = (urgency - momentum) for trailing team
+     adj_prob = prob + delta
 
 
 ================================================================================
