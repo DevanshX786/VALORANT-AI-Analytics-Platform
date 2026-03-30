@@ -191,7 +191,7 @@ else:
 # --- Ultra-Lite Wrappers for Production Efficiency ---
 class ProMapEngine:
     def get_player_map_score(self, player, m):
-        return map_lookup.get((player, m), {'map_score': 10.0, 'map_acs_mean': 180.0, 'map_kd_mean': 0.9})
+        return map_lookup.get((str(player).lower(), m), {'map_score': 10.0, 'map_acs_mean': 180.0, 'map_kd_mean': 0.9})
     def get_team_map_score(self, players, m):
         scores = [self.get_player_map_score(p, m)['map_score'] for p in players]
         return np.mean(scores) if scores else 10.0
