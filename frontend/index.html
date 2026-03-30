@@ -331,18 +331,26 @@
     VALORANT_MAPS.forEach(m => {
       const btn = document.createElement('button');
       btn.className = 'btn-white map-btn';
-      if(selectedMaps.includes(m)) btn.classList.add('lit');
-      btn.textContent = m;
+      const idx = selectedMaps.indexOf(m);
+      if(idx !== -1) {
+        btn.classList.add('lit');
+        btn.textContent = `(${idx + 1}) ${m}`;
+      } else {
+        btn.textContent = m;
+      }
       
       btn.addEventListener('click', () => {
         let limit = currentFormat === 'Bo1' ? 1 : currentFormat === 'Bo3' ? 3 : 5;
         if(selectedMaps.includes(m)) {
-          selectedMaps = selectedMaps.filter(x => x !== m); // Allow unselecting
+          selectedMaps = selectedMaps.filter(x => x !== m);
         } else {
-          if(selectedMaps.length >= limit) {
-             selectedMaps.shift(); // Remove the oldest selected map to make room
+          if(selectedMaps.length < limit) {
+             selectedMaps.push(m);
+          } else {
+             // Optional: warn or shift
+             selectedMaps.shift();
+             selectedMaps.push(m);
           }
-          selectedMaps.push(m);
         }
         renderMapGrid();
       });
@@ -426,16 +434,22 @@
     document.getElementById('barB').textContent = probB + '% (' + teamB + ')';
 
     let html = '';
-    data.map_results.forEach(mr => {
+    data.map_results.forEach((mr, index) => {
       const mapProbA = Number(mr.team_a_win_prob);
       const mapProbB = Number(mr.team_b_win_prob);
       const mapAWidth = Number.isFinite(mapProbA) ? Math.max(0, Math.min(100, mapProbA)) : 50;
       const mapBWidth = Number.isFinite(mapProbB) ? Math.max(0, Math.min(100, mapProbB)) : 50;
       const mapAText = Number.isFinite(mapProbA) ? mapProbA.toFixed(2) : mr.team_a_win_prob;
       const mapBText = Number.isFinite(mapProbB) ? mapProbB.toFixed(2) : mr.team_b_win_prob;
+      
+      const pressure = mr.pressure_adjustment_pct_points_for_team_a || 0;
+      const pressureText = pressure !== 0 ? ` [Momentum: ${pressure > 0 ? '+' : ''}${pressure}%]` : '';
 
       html += `<div class="map-result">`;
-      html += `<h3 style="margin-top:0; color:#fff">${mr.map.toUpperCase()} <span style="font-weight:300; font-size:1rem; color:#aaa; margin-left:1rem;">${mapAText}% vs ${mapBText}%</span></h3>`;
+      html += `<div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0; color:#fff">MAP ${index + 1}: ${mr.map.toUpperCase()}</h3>
+              </div>
+              <div style="font-weight:300; font-size:1rem; color:#aaa; margin: 0.5rem 0;">${teamA} Matchup Advantage</div>`;
       html += `
         <div class="map-prob-bar">
           <div class="map-prob-fill map-prob-a" style="width:${mapAWidth}%">${mapAText}%</div>

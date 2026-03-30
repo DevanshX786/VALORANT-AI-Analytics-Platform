@@ -120,7 +120,7 @@ class RoleBalanceEngine:
             for agent in agents:
                 normalized = self.canonical_agent_name(agent)
                 if self.assign_role(agent) == role and normalized in star_agents:
-                    star_bonus += 3
+                    star_bonus += 10
 
         # cap and normalize
         raw = coverage_score + star_bonus - missing_penalty

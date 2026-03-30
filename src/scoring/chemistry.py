@@ -16,9 +16,9 @@ class ChemistryEngine:
     """
 
     # Chemistry curve breakpoints
-    FLOOR        = 0.50   # complete strangers
-    LOW_CAP      = 0.60   # 1-5 matches
-    MID_CAP      = 0.80   # 5-15 matches
+    FLOOR        = 0.60   # complete strangers (raised from 0.50)
+    LOW_CAP      = 0.65   # 1-5 matches (raised from 0.60)
+    MID_CAP      = 0.85   # 5-15 matches (raised from 0.80)
     HIGH_CAP     = 1.00   # 15+ matches
 
     def __init__(self, overview_df: pd.DataFrame):

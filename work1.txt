@@ -284,6 +284,18 @@ STEP 9.2 - Dynamic Series Pressure & Momentum Adjustment
   - Logic: Trailing teams get 2-4% boost (urgency); leading teams get 0.5-1% (momentum).
   - WHY: Accounts for psychological resilience and comeback potential in multi-map matches.
 
+STEP 9.3 - Sequence-Aware Match Simulation
+------------------------------------------------------------------------
+  - Frontend now supports explicit map ordering (1st, 2nd, 3rd selection).
+  - Backend iterates map_pool in order, carrying forward the series score.
+  - WHY: Correctly models the "Pressure" effect which depends on the chronological flow of map wins/losses.
+
+STEP 9.4 - Firepower-First Scoring Optimization
+------------------------------------------------------------------------
+  - Shifted Map Score balance to 60% ACS / 25% KD / 15% Win Rate.
+  - Raised Chemistry Baseline Floor from 50% to 60% for VCT professionals.
+  - WHY: Prevents the "Synergy Bias" from overly penalizing newly formed star-studded superteams.
+
 STEP 10 - Basic frontend test harness (frontend/index.html)
 ------------------------------------------------------------------------
   - Team selector screens from roster endpoint
@@ -602,3 +614,37 @@ FILE REFERENCE
   venv/                        Python 3.14 virtual environment
 
 ================================================================================
+STEP 9.8: UNIVERSAL STABILITY ENGINE - Fixed global inaccuracies, role-based strategic normalization, and map sensitivity across all 48 Tier-1 rosters.
+------------------------------------------------------------------
+FINAL OMNI-STABILITY ENGINE (STEP 9.9) - Global Series Logic
+------------------------------------------------------------------
+
+34) ABSOLUTE PLAYER CENSUS (backend/api.py)
+    If player exists in tier1_rosters.csv:
+    - Mechanical_Floor = 22.0 (The " Pro Baseline\)
+ - Census_Pro_Bonus = +5.0 (Experience multiplier)
+ - Clutch_Bonus = +2.0
+ - Utility_Bonus = +2.0
+
+35) DYNAMIC ROLE BUFFS (Strategic vs Firepower)
+ Detect role from Agent_Lookup:
+ - CONTROLLER/SENTINEL: Mechanical_Score += 15.0 (Strategic Impact)
+ - INITIATOR: Mechanical_Score += 10.0 (Utility Impact)
+ - DUELIST: Mechanical_Score += 2.0 (Standard Firepower)
+
+36) ELITE TALENT OVERRIDE (Star-Power Floors)
+ Elite Stars (oxy, aspas, zekken, derke, alfajer, f0rsaken):
+ - Floor_Mech = 42.0
+ - Max_Mech = 50.0 (Normalized Cap)
+
+37) THE GLOBAL SERIES BLEND (predict_match)
+ To fix cases like \Fnatic beats Cloud9\, we blend raw ML with Skill-Gap logic:
+ - skill_diff = Mean(TeamA_Mech) - Mean(TeamB_Mech)
+ - skill_bias = min(0.45, 0.15 + (skill_diff * 0.05)) if diff > 1.0
+ = max(-0.45, -0.15 + (skill_diff * 0.05)) if diff < -1.0
+ - Final_Win_Prob_A = (0.7 * Original_XGBoost_Logic) + (0.3 * (0.5 + skill_bias))
+
+38) MAP SENSITIVITY (Soft-Slide Analysis)
+ Individual Map Scores are adjusted by:
+ Final_Map_Score = (0.9 * Role_Adjusted_Mech) + (0.1 * Map_Specific_ACS_Weight)
+ This ensures Map selection (Ascent vs Haven) provides the final 2-5% variance needed for series simulation.

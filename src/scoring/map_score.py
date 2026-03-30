@@ -155,7 +155,7 @@ class MapScoreEngine:
         win_contrib = result['map_win_rate'].fillna(0.5) - 0.5        # above/below 50% win rate
 
         result['map_score'] = (
-            (acs_norm * 0.4 + kd_norm * 0.35 + win_contrib * 0.25) * reliability
+            (acs_norm * 0.6 + kd_norm * 0.25 + win_contrib * 0.15) * reliability
         ) * 100   # scale to readable range
 
         self._player_map_table = result.set_index(['Player', 'Map'])
