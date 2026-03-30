@@ -28,6 +28,7 @@ env/
 # Special Exemption: These are required for Render Production
 !/models/baseline_xgb.json
 !/models/vct_production.all.pkl
+!/data/raw/tier1_rosters.csv
 
 # OS
 .DS_Store
