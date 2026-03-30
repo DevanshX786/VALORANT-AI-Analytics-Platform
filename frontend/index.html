@@ -228,7 +228,6 @@
       border-bottom: 1px solid var(--glass-border);
       padding: 0.5rem 0;
     }
-    .matchup-row.adv-a { color: var(--val-red); font-weight: 600; }
     .matchup-row.adv-b { color: #51c9ea; font-weight: 600; }
   </style>
 </head>
@@ -419,19 +418,20 @@
     document.getElementById('reportArea').style.display = 'block';
     
     const teamA = data.team_a.toUpperCase();
-    const teamB = data.team_b.toUpperCase();
-    const probA = data.team_a_average_win_prob;
-    const probB = data.team_b_average_win_prob;
+    const winnerText = data.team_a_average_win_prob > data.team_b_average_win_prob 
+      ? `PROPHESY: ${data.team_a} PREDICTED TO WIN` 
+      : `PROPHESY: ${data.team_b} PREDICTED TO WIN`;
     
     document.getElementById('winnerAnnounce').innerHTML = `
-      ${teamA} vs ${teamB}
+      <div style="margin-bottom:0.5rem;">${winnerText}</div>
+      <div style="font-size:0.9rem; color:var(--text-muted);">${data.team_a} vs ${data.team_b}</div>
     `;
     
     document.getElementById('probBarContainer').style.display = 'flex';
-    document.getElementById('barA').style.width = probA + '%';
-    document.getElementById('barB').style.width = probB + '%';
-    document.getElementById('barA').textContent = probA + '% (' + teamA + ')';
-    document.getElementById('barB').textContent = probB + '% (' + teamB + ')';
+    document.getElementById('barA').style.width = data.team_a_average_win_prob + '%';
+    document.getElementById('barA').textContent = data.team_a + ' ' + data.team_a_average_win_prob + '%';
+    document.getElementById('barB').style.width = data.team_b_average_win_prob + '%';
+    document.getElementById('barB').textContent = data.team_b + ' ' + data.team_b_average_win_prob + '%';
 
     let html = '';
     data.map_results.forEach((mr, index) => {
@@ -445,11 +445,12 @@
       const pressure = mr.pressure_adjustment_pct_points_for_team_a || 0;
       const pressureText = pressure !== 0 ? ` [Momentum: ${pressure > 0 ? '+' : ''}${pressure}%]` : '';
 
+      const mapWinnerName = mapProbA >= mapProbB ? data.team_a : data.team_b;
       html += `<div class="map-result">`;
       html += `<div style="display:flex; justify-content:space-between; align-items:center;">
                 <h3 style="margin:0; color:#fff">MAP ${index + 1}: ${mr.map.toUpperCase()}</h3>
               </div>
-              <div style="font-weight:300; font-size:1rem; color:#aaa; margin: 0.5rem 0;">${teamA} Matchup Advantage</div>`;
+              <div style="font-weight:300; font-size:1rem; color:#aaa; margin: 0.5rem 0;">${mapWinnerName.toUpperCase()} Matchup Advantage</div>`;
       html += `
         <div class="map-prob-bar">
           <div class="map-prob-fill map-prob-a" style="width:${mapAWidth}%">${mapAText}%</div>

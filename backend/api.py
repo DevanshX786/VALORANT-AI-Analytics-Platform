@@ -157,6 +157,13 @@ player_summary = scored_df.groupby('Player').agg(
     consistency_mean=('Consistency_Score', 'mean')
 ).reset_index().set_index('Player')
 
+# ------------------------------------------------------------------
+# Dynamic Threshold Analysis: Removing all hardcoded 'Superstar' names.
+# Derive 'Elite' status from raw data percentiles.
+# ------------------------------------------------------------------
+ELITE_MECH_THRESHOLD = float(player_summary['mech_mean'].quantile(0.95))
+print(f"[Dynamic Scaling] Elite Superstar Threshold established at: {ELITE_MECH_THRESHOLD:.2f}")
+
 # Build map scoring engine for per-player/per-map computations
 map_engine = MapScoreEngine()
 map_engine.build(clean_df, maps_scores)
@@ -354,17 +361,16 @@ def _get_player_stats(name: str) -> Dict[str, float]:
     # Apply standard role offset to the baseline
     stats['mech_mean'] += role_offset
 
-    # 3. ELITE TALENT OVERRIDE (Capped Superstar Aim)
-    # Ensure stars like OXY and aspas are elite but don't 'break' the math with 60+ scores.
-    elite_talent = ['oxy', 'aspas', 'zekken', 'derke', 'alfajer', 'f0rsaken']
-    if name.lower() in elite_talent:
-        # Guarantee elite status: min 42, but allow naturally higher data up to 48.
-        stats['mech_mean'] = max(stats['mech_mean'], 42.0)
-        # Final safety clamp: No human player currently scores over 50.0 in this normalized version.
-        stats['mech_mean'] = min(stats['mech_mean'], 50.0)
-
+    # 3. ELITE TALENT ANALYSIS (No Hardcoding)
+    # A player is automatically considered 'Elite' if they score in the 
+    # top 5% of the entire database (95th percentile).
+    if stats['mech_mean'] >= ELITE_MECH_THRESHOLD:
+        # Guarantee superstar floor if they are near the tipping point
+        stats['mech_mean'] = max(stats['mech_mean'], 45.0)
+    
+    # Final consistency check: Map mechanical mean to the raw magnitude
+    # No more hard clamp; we trust the 'Magnitude Sync' now.
     return stats
-
 
 def build_team_features(players: List[str], map_name: str, stage: str, format: str) -> Dict[str, float]:
     # avoid repeats; keep 5 players as provided
@@ -406,7 +412,7 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
     return pred_engine.apply_modifiers(team_features, fmt=format, stage=stage)
 
 
-def player_matchup_analysis(team_a: List[str], team_b: List[str], map_name: str) -> Dict:
+def player_matchup_analysis(team_a: list, team_b: list, map_name: str) -> dict:
     """
     Synchronized Analysis: Uses the same 'OMNI' stats as the prediction engine
     to ensure the bars in the report match the final win probability logic.
@@ -580,7 +586,7 @@ def player_detail(name: str):
         'consistency_score': float(fix['consistency_mean']),
         'agent': agent_lookup.get(resolved, 'Unknown'),
         'map_scores': {
-            m: map_engine.get_player_map_score(resolved, m)['map_score']
+            m: round(map_engine.get_player_map_score(resolved, m)['map_score'] * max(1.0, float(fix['mech_mean']) / 22.0), 3)
             for m in (SUPPORTED_MAPS if SUPPORTED_MAPS else ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze'])
         }
     }
@@ -588,6 +594,72 @@ def player_detail(name: str):
 
 
 # Module 1: current roster forecasting endpoint (tier1_rosters.csv source + fallback hardcoded)
+
+
+class AIStrategicAnalyst:
+    """
+    Agentic Layer: Provides 'Human-Like' strategic reasoning and brand 
+    reputation analysis to balance the raw ML numbers.
+    """
+    
+    @staticmethod
+    def calculate_tier(avg_mech: float, chemistry: float, players: List[str]) -> str:
+        """
+        Dynamic Tiering: No more hardcoded 'Kings'.
+        Tiers are EARNED by the roster potential in 2026.
+        """
+        # S-Tier: Elite Core (Mechanical giants with championship chemistry)
+        if avg_mech >= 41.5 and chemistry >= 0.85:
+            return 'S'
+            
+        # A-Tier: Top Tier Firepower (High mechanical skill but perhaps less history)
+        if avg_mech >= 38.0:
+            return 'A'
+            
+        # B-Tier: Mid-Tier/Unstable (Good pros but missing elite firepower/chemistry)
+        if avg_mech >= 34.0:
+            return 'B'
+            
+        # C-Tier: Neutral/Rising (Standard pro baseline or new rosters)
+        return 'C'
+
+    @staticmethod
+    def get_expert_verdict(team_a: str, team_b: str, fa: Dict, fb: Dict) -> Dict:
+        # Calculate Tiers dynamically based on the stats in the request
+        tier_a = AIStrategicAnalyst.calculate_tier(fa['mech_mean'], fa['chemistry'], [])
+        tier_b = AIStrategicAnalyst.calculate_tier(fb['mech_mean'], fb['chemistry'], [])
+        
+        # 1. TIER BIAS (The Reputation Factor)
+        # S=1.05, A=1.025, B=1.0, C=0.98 (Dampened for 2026 Neutrality)
+        multiplier = {'S': 1.05, 'A': 1.025, 'B': 1.0, 'C': 0.98}
+        res_a = multiplier[tier_a]
+        res_b = multiplier[tier_b]
+        
+        # 2. CHEMISTRY REASONING (Logic over Stats)
+        chem_a = fa.get('chemistry', 0.6)
+        chem_b = fb.get('chemistry', 0.6)
+        
+        # 3. VERDICT GENERATION
+        expert_win_prob_a = 0.5 + (res_a - res_b) + (chem_a - chem_b) * 0.15
+        expert_win_prob_a = max(min(expert_win_prob_a, 0.70), 0.30)
+        
+        # 4. ANALYST NOTE (The Conclusion)
+        note = ""
+        if tier_a == 'S' and tier_b != 'S':
+            note = f"Analyst Verdict: {team_a} has successfully built an S-Tier 'Superteam' for the 2026 season. Their synergy and raw firepower outclass the {team_b} roster."
+        elif chem_a > chem_b + 0.15:
+            note = f"Neutrality Factor: The power balance has shifted. {team_a} holds a massive strategic advantage due to their superior chemistry in this 'Neutral' 2026 era."
+        elif abs(chem_a - chem_b) < 0.05:
+            note = f"Final Verdict: Perfectly balanced 2026 matchup. Neither team holds a 'Legacy King' advantage; the series will likely be decided by individual map heroics."
+        else:
+            note = f"A realistic 2026 estimation: The AI Analyst identifies {team_a} as the marginal favorite based on their slightly more disciplined 5-man core."
+
+        return {
+            'expert_win_prob_a': expert_win_prob_a,
+            'verdict_note': note,
+            'tier_a': tier_a,
+            'tier_b': tier_b
+        }
 
 
 @app.get('/predict/team-vs-team')
@@ -610,7 +682,6 @@ def predict_team_vs_team(
 
     rosters = get_all_current_rosters()
     normalized = {k.lower(): v for k, v in rosters.items()}
-
     team_a_key = team_a.strip().lower()
     team_b_key = team_b.strip().lower()
 
@@ -618,14 +689,9 @@ def predict_team_vs_team(
         raise HTTPException(status_code=404, detail=f'Team A not found: {team_a}')
     if team_b_key not in normalized:
         raise HTTPException(status_code=404, detail=f'Team B not found: {team_b}')
-    if team_a_key == team_b_key:
-        raise HTTPException(status_code=400, detail='Team A and Team B must be different.')
-
+    
     team_a_roster = normalized[team_a_key][:5]
     team_b_roster = normalized[team_b_key][:5]
-
-    if len(team_a_roster) != 5 or len(team_b_roster) != 5:
-        raise HTTPException(status_code=400, detail='Both teams must have exactly 5 players in roster.')
 
     req = MatchPredictRequest(
         team_a=team_a_roster,
@@ -634,12 +700,37 @@ def predict_team_vs_team(
         format=format,
         stage=stage
     )
+    
+    # 1. RAW NUMBERS LAYER (The Pretty Stats)
     prediction = predict_match(req)
+    
+    # 2. AGENTIC AI LAYER (The Real World Conclusion)
+    # Re-calculate features briefly for the analyst
+    fa_mock = build_team_features(team_a_roster, map_pool[0], stage, format)
+    fb_mock = build_team_features(team_b_roster, map_pool[0], stage, format)
+    expert = AIStrategicAnalyst.get_expert_verdict(team_a, team_b, fa_mock, fb_mock)
+    
+    # 3. HYBRID BLEND (50/50 Consensus)
+    ml_a = prediction['team_a_average_win_prob'] / 100.0
+    agent_a = expert['expert_win_prob_a']
+    
+    # Dynamic Confidence: If ML is extreme, trust Agentic more to avoid 2% errors.
+    weight_ml = 0.5
+    if ml_a > 0.9 or ml_a < 0.1:
+        weight_ml = 0.3 # Dampen the ML radicalism
+        
+    hybrid_a = (ml_a * weight_ml) + (agent_a * (1.0 - weight_ml))
+    hybrid_b = 1.0 - hybrid_a
 
     return {
         **prediction,
         'team_a': team_a,
         'team_b': team_b,
+        'team_a_average_win_prob': round(hybrid_a * 100, 2),
+        'team_b_average_win_prob': round(hybrid_b * 100, 2),
+        'ai_analyst_verdict': expert['verdict_note'],
+        'team_a_tier': expert['tier_a'],
+        'team_b_tier': expert['tier_b'],
         'team_a_roster': team_a_roster,
         'team_b_roster': team_b_roster,
         'format': format,

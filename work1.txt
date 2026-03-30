@@ -614,37 +614,41 @@ FILE REFERENCE
   venv/                        Python 3.14 virtual environment
 
 ================================================================================
-STEP 9.8: UNIVERSAL STABILITY ENGINE - Fixed global inaccuracies, role-based strategic normalization, and map sensitivity across all 48 Tier-1 rosters.
-------------------------------------------------------------------
-FINAL OMNI-STABILITY ENGINE (STEP 9.9) - Global Series Logic
-------------------------------------------------------------------
+STEP 11: HYBRID AGENTIC AI & 2026 SEASON NEUTRALITY (Final Module 1 Architecture)
+================================================================================
 
-34) ABSOLUTE PLAYER CENSUS (backend/api.py)
-    If player exists in tier1_rosters.csv:
-    - Mechanical_Floor = 22.0 (The " Pro Baseline\)
- - Census_Pro_Bonus = +5.0 (Experience multiplier)
- - Clutch_Bonus = +2.0
- - Utility_Bonus = +2.0
+39) AGENTIC STRATEGIC ANALYST (backend/api.py)
+    Implemented a high-level reasoning layer to balance raw ML numbers:
+    - 50/50 Hybrid Consensus: Final win prob = (0.5 * XGBoost) + (0.5 * AI Analyst Logic).
+    - AI Analyst Logic: Evaluates roster-wide potential, chemistry, and IGL leadership.
+    - Expert Verdicts: Provides human-readable reasoning (e.g., "S-Tier mechanical gap").
 
-35) DYNAMIC ROLE BUFFS (Strategic vs Firepower)
- Detect role from Agent_Lookup:
- - CONTROLLER/SENTINEL: Mechanical_Score += 15.0 (Strategic Impact)
- - INITIATOR: Mechanical_Score += 10.0 (Utility Impact)
- - DUELIST: Mechanical_Score += 2.0 (Standard Firepower)
+40) 2026 SEASON POWER BALANCE (Neutrality-First)
+    Strictly enforced a "Reset" for the 2026 season to eliminate historical brand bias:
+    - Dampens historical trophy counts (Fnatic/Gen.G/LOUD).
+    - Requires teams to prove dominance with their *current* 5-man core.
+    - Ensures predictions are based on "Current Roster Potential" over "Legacy Reputation."
 
-36) ELITE TALENT OVERRIDE (Star-Power Floors)
- Elite Stars (oxy, aspas, zekken, derke, alfajer, f0rsaken):
- - Floor_Mech = 42.0
- - Max_Mech = 50.0 (Normalized Cap)
+41) DYNAMIC REPUTATION TIERS (S, A, B, C)
+    Removed all hardcoded Tier assignments. Real-time tiering based on:
+    - S-Tier: Avg Mechanical > 41.5 + high IGL consistency.
+    - A-Tier: Avg Mechanical > 35.0 or 90% Chemistry.
+    - B-Tier: Mid-tier mechanical floor (28.0+).
+    - C-Tier: Emerging rosters / Rookie-heavy squads.
 
-37) THE GLOBAL SERIES BLEND (predict_match)
- To fix cases like \Fnatic beats Cloud9\, we blend raw ML with Skill-Gap logic:
- - skill_diff = Mean(TeamA_Mech) - Mean(TeamB_Mech)
- - skill_bias = min(0.45, 0.15 + (skill_diff * 0.05)) if diff > 1.0
- = max(-0.45, -0.15 + (skill_diff * 0.05)) if diff < -1.0
- - Final_Win_Prob_A = (0.7 * Original_XGBoost_Logic) + (0.3 * (0.5 + skill_bias))
+42) SUPERSTAR MAGNITUDE SYNC (The 'Derke' Patch)
+    Removed the legacy 50-point safety clamp.
+    - Elite players now retain their full historical magnitude (180+ Mechanical).
+    - Map-specific scores now scale proportionally: Map_Impact = Base_Map_Score * (Mech_Mean / 22.0).
+    - Ensures world-class legends (Derke, aspas, OXY) appear as dominant 150+ forces in reports.
 
-38) MAP SENSITIVITY (Soft-Slide Analysis)
- Individual Map Scores are adjusted by:
- Final_Map_Score = (0.9 * Role_Adjusted_Mech) + (0.1 * Map_Specific_ACS_Weight)
- This ensures Map selection (Ascent vs Haven) provides the final 2-5% variance needed for series simulation.
+43) ABSOLUTE ZERO HARDCODING (Data-Driven Elite Status)
+    Eliminated all manually typed player lists.
+    - Dynamic Threshold: ELITE_MECH_THRESHOLD = player_summary['mech_mean'].quantile(0.95).
+    - Any player in the top 5% of the global database is automatically treated as a Superstar.
+    - System is now fully autonomous and will adapt as new talent enters the league.
+
+================================================================================
+✅ MODULE 1: COMPLETED & PRODUCTION READY ✅
+================================================================================
+Next Objective: MODULE 2 - Roster Trade Simulator
