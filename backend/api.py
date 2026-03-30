@@ -646,19 +646,24 @@ class AIStrategicAnalyst:
         # 4. ANALYST NOTE (The Conclusion)
         note = ""
         if tier_a == 'S' and tier_b != 'S':
-            note = f"Analyst Verdict: {team_a} has successfully built an S-Tier 'Superteam' for the 2026 season. Their synergy and raw firepower outclass the {team_b} roster."
+            verdict = f"Analyst Verdict: {team_a} has successfully built an S-Tier 'Superteam' for the 2026 season. Their synergy and raw firepower outclass the {team_b} roster."
         elif chem_a > chem_b + 0.15:
-            note = f"Neutrality Factor: The power balance has shifted. {team_a} holds a massive strategic advantage due to their superior chemistry in this 'Neutral' 2026 era."
+            verdict = f"Neutrality Factor: The power balance has shifted. {team_a} holds a massive strategic advantage due to their superior chemistry in this 'Neutral' 2026 era."
         elif abs(chem_a - chem_b) < 0.05:
-            note = f"Final Verdict: Perfectly balanced 2026 matchup. Neither team holds a 'Legacy King' advantage; the series will likely be decided by individual map heroics."
+            verdict = f"Final Verdict: Perfectly balanced 2026 matchup. Neither team holds a 'Legacy King' advantage; the series will likely be decided by individual map heroics."
         else:
-            note = f"A realistic 2026 estimation: The AI Analyst identifies {team_a} as the marginal favorite based on their slightly more disciplined 5-man core."
+            verdict = f"A realistic 2026 estimation: The AI Analyst identifies {team_a} as the marginal favorite based on their slightly more disciplined 5-man core."
 
+        # Real-World Consistency Check: 
+        # Even with a stats landslide, no pro squad has < 15% chance in Bo3.
+        # 15% indicates 'Absolute Domination' by the opponent.
+        expert_a = max(0.15, min(0.85, expert_win_prob_a))
         return {
-            'expert_win_prob_a': expert_win_prob_a,
-            'verdict_note': note,
-            'tier_a': tier_a,
-            'tier_b': tier_b
+            'expert_win_prob_a': round(expert_a * 100, 2),
+            'expert_win_prob_b': round((1.0 - expert_a) * 100, 2),
+            'verdict': verdict,
+            'team_a_tier': tier_a,
+            'team_b_tier': tier_b
         }
 
 
@@ -712,7 +717,7 @@ def predict_team_vs_team(
     
     # 3. HYBRID BLEND (50/50 Consensus)
     ml_a = prediction['team_a_average_win_prob'] / 100.0
-    agent_a = expert['expert_win_prob_a']
+    agent_a = float(expert['expert_win_prob_a']) / 100.0
     
     # Dynamic Confidence: If ML is extreme, trust Agentic more to avoid 2% errors.
     weight_ml = 0.5
@@ -728,9 +733,9 @@ def predict_team_vs_team(
         'team_b': team_b,
         'team_a_average_win_prob': round(hybrid_a * 100, 2),
         'team_b_average_win_prob': round(hybrid_b * 100, 2),
-        'ai_analyst_verdict': expert['verdict_note'],
-        'team_a_tier': expert['tier_a'],
-        'team_b_tier': expert['tier_b'],
+        'ai_analyst_verdict': expert['verdict'],
+        'team_a_tier': expert['team_a_tier'],
+        'team_b_tier': expert['team_b_tier'],
         'team_a_roster': team_a_roster,
         'team_b_roster': team_b_roster,
         'format': format,

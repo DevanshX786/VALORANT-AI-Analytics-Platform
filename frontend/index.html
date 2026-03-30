@@ -459,23 +459,42 @@
       `;
       
       mr.player_matchup.player_matchups.forEach(pm => {
-         let pA = pm.player_a;
-         let pB = pm.player_b;
-         let scoreA = Number(pm.map_score_a);
-         let scoreB = Number(pm.map_score_b);
-         let scoreATxt = Number.isFinite(scoreA) ? scoreA.toFixed(2) : pm.map_score_a;
-         let scoreBTxt = Number.isFinite(scoreB) ? scoreB.toFixed(2) : pm.map_score_b;
+          let pA = pm.player_a;
+          let pB = pm.player_b;
+          let scoreA = Number(pm.map_score_a);
+          let scoreB = Number(pm.map_score_b);
+          let scoreATxt = Number.isFinite(scoreA) ? scoreA.toFixed(2) : pm.map_score_a;
+          let scoreBTxt = Number.isFinite(scoreB) ? scoreB.toFixed(2) : pm.map_score_b;
 
-         let advClass = pm.advantage === 'A' ? 'adv-a' : pm.advantage === 'B' ? 'adv-b' : '';
-         let sym = pm.advantage === 'A' ? '>>>' : pm.advantage === 'B' ? '<<<' : '=';
-         
-         html += `
-           <div class="matchup-row ${advClass}">
-             <span style="width: 35%;">${pA}</span>
-             <span style="width: 30%; text-align:center; color:#777; font-weight:400; font-size:0.9rem;">${scoreATxt} ${sym} ${scoreBTxt}</span>
-             <span style="width: 35%; text-align:right;">${pB}</span>
-           </div>
-         `;
+          // Final Highlight Logic: Apply the WINNER'S color to the entire row!
+          let colorA = '#fff';
+          let colorB = '#fff';
+          let sym = '=';
+
+          if (scoreA > scoreB) {
+              // Team A Advantage: Both names Red
+              colorA = 'var(--val-red)';
+              colorB = 'var(--val-red)';
+              sym = '>>>';
+          } else if (scoreB > scoreA) {
+              // Team B Advantage: Both names Blue
+              colorA = '#51c9ea';
+              colorB = '#51c9ea';
+              sym = '<<<';
+          } else {
+              // Perfect Stalemate: Both names White
+              colorA = '#fff';
+              colorB = '#fff';
+              sym = '=';
+          }
+          
+          html += `
+            <div class="matchup-row" style="font-weight:600;">
+              <span style="width: 35%; color:${colorA};">${pA}</span>
+              <span style="width: 30%; text-align:center; color:#ccc; font-weight:400; font-size:0.9rem;">${scoreATxt} ${sym} ${scoreBTxt}</span>
+              <span style="width: 35%; text-align:right; color:${colorB};">${pB}</span>
+            </div>
+          `;
       });
       html += `</div>`;
     });
