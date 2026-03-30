@@ -452,7 +452,7 @@ def predict_match(req: MatchPredictRequest):
 @app.get('/players/search')
 def players_search(q: str = Query(..., min_length=1, max_length=50), limit: int = 10):
     lower_q = q.strip().lower()
-    candidates = [p for p in player_summary.index if lower_q in p.lower()]
+    candidates = [p for p in player_summary.keys() if lower_q in p.lower()]
     return {'query': q, 'results': candidates[:limit]}
 
 
@@ -465,11 +465,10 @@ def get_rosters():
 @app.get('/player/{name}')
 def player_detail(name: str):
     resolved = resolve_player_name(name)
-    if not resolved or resolved not in player_summary.index:
+    if not resolved or resolved not in player_summary:
         raise HTTPException(status_code=404, detail='Player not found')
 
-    row = player_summary.loc[resolved]
-    fix = row.to_dict()
+    fix = player_summary[resolved]
     res = {
         'player': resolved,
         'mechanical_score': float(fix['mech_mean']),
