@@ -50,10 +50,15 @@ class PredictionEngine:
             if key in adjusted:
                 adjusted[key] = adjusted[key] * fmt_weights.get(key, 1.0)
 
-        # Apply stage pressure to clutch and chemistry
+        # Apply stage pressure to clutch and chemistry (with boundary caps)
         if 'clutch_sum' in adjusted:
-            adjusted['clutch_sum'] = adjusted['clutch_sum'] * stage_mul
+            # Clutch sum is additive but we still don't want it wildly high
+            adjusted['clutch_sum'] = min(50.0, adjusted['clutch_sum'] * stage_mul)
         if 'chemistry' in adjusted:
-            adjusted['chemistry'] = adjusted['chemistry'] * stage_mul
+            # Chemistry is a probability-like score [0.6, 1.0]. Cap it at 1.0.
+            adjusted['chemistry'] = min(1.0, adjusted['chemistry'] * stage_mul)
+        if 'map_score' in adjusted:
+            # map_score is 0-100 logic.
+            adjusted['map_score'] = min(100.0, adjusted['map_score'])
 
         return adjusted

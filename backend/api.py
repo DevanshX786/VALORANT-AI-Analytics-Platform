@@ -135,14 +135,13 @@ SUPPORTED_MAPS = ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Lotus
 if os.path.exists(ULTRA_LITE_PATH):
     import pickle
     print(f"[Sync Engine] Ultra-Lite Production Mode detected. Purging heavy Pandas requirements...")
-    print(f"[Sync Engine] Ultra-Lite Mode detect. Purging heavy Pandas requirements...")
     with open(ULTRA_LITE_PATH, 'rb') as f:
         pkg = pickle.load(f)
         # Force-normalize all keys to lowercase for foolproof lookup
-        player_summary = {k.lower(): v for k, v in pkg['player_summary'].items()}
-        map_lookup = { (k[0].lower(), k[1]): v for k, v in pkg['map_lookup'].items() }
-        chem_history = pkg['chemistry_history']
-        agent_lookup = {k.lower(): v for k, v in pkg['agent_lookup'].items()}
+        player_summary = {str(k).lower(): v for k, v in pkg['player_summary'].items()}
+        map_lookup = { (str(k[0]).lower(), k[1]): v for k, v in pkg['map_lookup'].items() }
+        chem_history = {frozenset([str(p).lower() for p in k]): v for k, v in pkg['chemistry_history'].items()}
+        agent_lookup = {str(k).lower(): v for k, v in pkg['agent_lookup'].items()}
         ELITE_MECH_THRESHOLD = pkg['metadata']['elite_quantile_95']
     print(f"[Sync Engine] Success. {len(player_summary)} players and {len(map_lookup)} map profiles ready in RAM (Normalized).")
 else:
@@ -205,14 +204,27 @@ class ProMapEngine:
 
 class ProChemEngine:
     FLOOR = 0.60
-    def get_roster_chemistry(self, players):
+    LOW_CAP = 0.65
+    MID_CAP = 0.85
+    HIGH_CAP = 1.00
+
+    def _matches_to_chemistry(self, match_count: int) -> float:
+        if match_count == 0: return self.FLOOR
+        if match_count <= 5: return self.LOW_CAP
+        if match_count <= 15:
+            progress = (match_count - 5) / 10.0
+            return self.LOW_CAP + progress * (self.MID_CAP - self.LOW_CAP)
+        # Logarithmic approach toward 100% for 15+ matches
+        log_factor = np.log(match_count - 14) / np.log(100)
+        return min(self.MID_CAP + log_factor * (self.HIGH_CAP - self.MID_CAP), self.HIGH_CAP)
+
+    def get_roster_chemistry(self, players: list):
         if len(players) < 2: return {'chemistry_score': self.FLOOR}
-        counts = []
+        chems = []
         for pair in itertools.combinations(players, 2):
-            counts.append(chem_history.get(frozenset(pair), 0))
-        avg_m = np.mean(counts)
-        score = 0.6 + (min(avg_m, 20) / 20.0) * 0.35
-        return {'chemistry_score': float(score)}
+            m = chem_history.get(frozenset([p.lower() for p in pair]), 0)
+            chems.append(self._matches_to_chemistry(m))
+        return {'chemistry_score': float(np.mean(chems)) if chems else self.FLOOR}
 
 map_engine = ProMapEngine()
 chem_engine = ProChemEngine()
@@ -318,25 +330,34 @@ def build_team_features(players: List[str], map_name: str, stage: str, format: s
         'consistency': float(np.mean([p['consistency_mean'] for p in per_player])),
         'map_score': float(map_engine.get_team_map_score(resolved_players, canonical_map)),
         'chemistry': float(chem_engine.get_roster_chemistry(resolved_players)['chemistry_score']),
-        'role_balance': float(role_engine.compute_team_role_balance([agent_lookup.get(p, 'Unknown') for p in resolved_players])),
+        'role_balance': float(role_engine.compute_team_role_balance(
+            [agent_lookup.get(p.lower(), 'Unknown') for p in resolved_players],
+            comfort_count=sum(1 for p in resolved_players if p.lower() in agent_lookup)
+        )),
         'format_modifier': 1.0 if format == 'Bo1' else 1.15 if format == 'Bo3' else 1.25,
         'stage_modifier': 1.2 if stage == 'Playoffs' else 1.0
     }
     
-    if team_features['mech_mean'] > 31:
-        team_features['chemistry'], team_features['role_balance'] = 0.95, 100.0
-    elif team_features['mech_mean'] > 28:
-        team_features['chemistry'] = round(0.5 * team_features['chemistry'] + 0.45, 4)
-        team_features['role_balance'] = round(0.5 * team_features['role_balance'] + 45.0, 2)
-
     return pred_engine.apply_modifiers(team_features, fmt=format, stage=stage)
 
 
 def player_matchup_analysis(team_a: list, team_b: list, map_name: str) -> dict:
     canonical_map = normalize_map_name(map_name)
-    analysis = []
     
-    for pa_name, pb_name in zip(team_a, team_b):
+    # Sort players by role for like-for-like comparison (Duelist -> Initiator -> Controller -> Sentinel)
+    role_order = {'duelist': 0, 'initiator': 1, 'controller': 2, 'sentinel': 3, 'flex': 4}
+    
+    def get_role_score(p):
+        res = resolve_player_name(p) or str(p).strip()
+        agent = agent_lookup.get(res.lower() if hasattr(res, 'lower') else res, 'Unknown')
+        role = role_engine.assign_role(agent)
+        return role_order.get(role, 5)
+
+    sorted_a = sorted(team_a, key=get_role_score)
+    sorted_b = sorted(team_b, key=get_role_score)
+    
+    analysis = []
+    for pa_name, pb_name in zip(sorted_a, sorted_b):
         stats_a, stats_b = _get_player_stats(pa_name), _get_player_stats(pb_name)
         base_a, base_b = stats_a['mech_mean'], stats_b['mech_mean']
         
@@ -409,7 +430,19 @@ def predict_match(req: MatchPredictRequest):
             base_prob_a, req.format, pre_a_wins, pre_b_wins
         )
         adj_prob_b = 1.0 - adj_prob_a
-        predicted_winner = 'Team A' if adj_prob_a >= 0.5 else 'Team B'
+
+        # --- Skill Bias Correction (Blended inside loop for Series State consistency) ---
+        skill_diff = fa['mech_mean'] - fb['mech_mean']
+        skill_bias = 0.0
+        if skill_diff > 1.0:
+            skill_bias = min(0.45, 0.15 + (skill_diff * 0.05))
+        elif skill_diff < -1.0:
+            skill_bias = max(-0.45, -0.15 + (skill_diff * 0.05))
+
+        # Blend: 85% Map-Specific Logic + 15% Skill-Correction Bias
+        final_prob_a = (0.85 * adj_prob_a) + (0.15 * (0.5 + skill_bias))
+        final_prob_b = 1.0 - final_prob_a
+        predicted_winner = 'Team A' if final_prob_a >= 0.5 else 'Team B'
 
         # Advance predicted series state for subsequent map context.
         if predicted_winner == 'Team A':
@@ -419,38 +452,17 @@ def predict_match(req: MatchPredictRequest):
 
         map_results.append({
             'map': map_name,
-            'team_a_win_prob': round(adj_prob_a * 100, 3),
-            'team_b_win_prob': round(adj_prob_b * 100, 3),
+            'team_a_win_prob': round(final_prob_a * 100, 3),
+            'team_b_win_prob': round(final_prob_b * 100, 3),
             'predicted_winner': predicted_winner,
             'series_state_before': f"{pre_a_wins}-{pre_b_wins}",
             'pressure_adjustment_pct_points_for_team_a': round(pressure_delta * 100, 2),
             'player_matchup': player_matchup_analysis(team_a, team_b, map_name)
         })
 
-        # Stop once a team has clinched the series in Bo3/Bo5.
-        if req.format in ('Bo3', 'Bo5') and (team_a_series_wins >= wins_needed or team_b_series_wins >= wins_needed):
-            break
-
-    # --- FINAL SUPERTEAM BLEND (Soft Override) ---
-    # We no longer 'floor' the win prob. Instead, we use a weighted blend.
-    # This ensures map-to-map variance stays visible.
-    skill_diff = fa['mech_mean'] - fb['mech_mean']
-    
-    # Correction target based on skill gap
-    skill_bias = 0.0
-    if skill_diff > 1.0:
-        skill_bias = min(0.45, 0.15 + (skill_diff * 0.05))
-    elif skill_diff < -1.0:
-        skill_bias = max(-0.45, -0.15 + (skill_diff * 0.05))
-
-    for res in map_results:
-        # Blend: 70% Map-Specific Logic + 30% Skill-Correction Bias
-        orig_a = float(res['team_a_win_prob']) / 100.0
-        blended_a = (0.7 * orig_a) + (0.3 * (0.5 + skill_bias))
-        
-        res['team_a_win_prob'] = round(blended_a * 100, 3)
-        res['team_b_win_prob'] = round(100.0 - res['team_a_win_prob'], 3)
-        res['predicted_winner'] = 'Team A' if blended_a >= 0.5 else 'Team B'
+        # We no longer stop the simulation here even if clinched,
+        # to allow for a full "Map Analysis" across all selected maps.
+        pass
 
     # overall aggregator by averaging map odds
     team_a_avg = round(float(np.mean([r['team_a_win_prob'] for r in map_results])), 3)
@@ -642,7 +654,11 @@ def predict_team_vs_team(
     # If the Analyst sees a sweep or a major tier gap, lean HEAVILY (80%) 
     # on the Expert Verdict to allow for "Visual Domination" in the UI.
     weight_ml = 0.5
-    tier_gap = abs(ord(expert['team_a_tier']) - ord(expert['team_b_tier']))
+    tier_priority = {'S': 4, 'A': 3, 'B': 2, 'C': 1}
+    gap_a = tier_priority.get(expert['team_a_tier'], 0)
+    gap_b = tier_priority.get(expert['team_b_tier'], 0)
+    tier_gap = abs(gap_a - gap_b)
+
     if is_any_sweep or tier_gap >= 1:
         weight_ml = 0.2 # 80% weight to Agentic AI
     elif ml_a > 0.9 or ml_a < 0.1:

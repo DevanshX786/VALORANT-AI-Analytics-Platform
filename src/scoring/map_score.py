@@ -43,6 +43,7 @@ class MapScoreEngine:
         """
         # ---- Part A: player-level map stats from overview ----
         ov = overview_df.copy()
+        ov['Player'] = ov['Player'].astype(str).str.lower()
         ov['_acs']    = pd.to_numeric(ov.get('Average Combat Score'), errors='coerce')
         ov['_kills']  = pd.to_numeric(ov.get('Kills'),  errors='coerce').fillna(0)
         ov['_deaths'] = pd.to_numeric(ov.get('Deaths'), errors='coerce').replace(0, 1).fillna(1)
@@ -184,8 +185,9 @@ class MapScoreEngine:
     def get_player_map_score(self, player: str, map_name: str) -> dict:
         """Returns map performance data for a specific player on a specific map."""
         map_name_clean = map_name.strip().title()
+        player_clean = str(player).strip().lower()
         try:
-            row = self._player_map_table.loc[(player, map_name_clean)]
+            row = self._player_map_table.loc[(player_clean, map_name_clean)]
             return {
                 'map_score':     round(float(row.get('map_score', 0)),    3),
                 'map_acs':       round(float(row.get('map_acs_mean', 0)), 1),

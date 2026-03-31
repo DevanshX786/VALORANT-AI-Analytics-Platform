@@ -30,24 +30,7 @@ AGENT_CANONICAL_ALIAS = {
     'kaio': 'kayo',
 }
 
-ROLE_AGENT_STARS = {
-    'duelist': {'jett', 'raze', 'neon', 'reyna'},
-    'initiator': {'sova', 'breach', 'skye'},
-    'controller': {'omen', 'viper', 'brimstone'},
-    'sentinel': {'sage', 'killjoy', 'chamber'},
-    'flex': {'kayo', 'astra', 'harbor', 'fade'}
-}
-
 REQUIRED_ROLES = {'duelist', 'initiator', 'controller', 'sentinel'}
-
-# Role champions (highly optimal picks used for extra bonus)
-ROLE_STAR_AGENTS = {
-    'duelist': {'jett', 'raze', 'neon', 'reyna'},
-    'initiator': {'sova', 'breach', 'skye'},
-    'controller': {'omen', 'viper', 'brimstone'},
-    'sentinel': {'sage', 'killjoy', 'chamber'},
-    'flex': {'kayo', 'astra', 'harbor'}
-}
 
 
 class RoleBalanceEngine:
@@ -82,15 +65,22 @@ class RoleBalanceEngine:
 
         return 'flex'  # unknown agent treated as flex by default
 
-    def compute_team_role_balance(self, agents: list) -> float:
-        """Compute team role balance score 0-100 by role coverage + star agent bonuses."""
+    def compute_team_role_balance(self, agents: list, comfort_count: int = 0) -> float:
+        """
+        Compute team role balance score 0-100.
+        Logic:
+          - Role Coverage: 15 per unique required role (max 60)
+          - Full Synergy: +20 if all 4 roles are present
+          - Comfort Bonus: +7.5 per comfort agent (max 37.5)
+          - Missing Penalty: -10 per missing role
+        """
         if not agents:
             return 0.0
 
         roles = [self.assign_role(a) for a in agents if isinstance(a, str)]
         unique_roles = set(roles)
 
-        # unknown agent namespace diagnostics (help for raw DB mapping)
+        # unknown agent namespace diagnostics
         unknown_agents = set()
         for agent in agents:
             canonical = self.canonical_agent_name(agent)
@@ -107,23 +97,18 @@ class RoleBalanceEngine:
         covered = unique_roles.intersection(REQUIRED_ROLES)
         missing = REQUIRED_ROLES - covered
 
-        coverage_score = len(covered) * 15  # 0..75
+        coverage_score = len(covered) * 15  # 0..60
         if not missing:
-            coverage_score += 20  # full role synergy bonus
+            coverage_score += 20  # full synergy bonus -> 80
 
         # penalty for missing roles
         missing_penalty = len(missing) * 10
 
-        # star agent bonus
-        star_bonus = 0
-        for role, star_agents in ROLE_AGENT_STARS.items():
-            for agent in agents:
-                normalized = self.canonical_agent_name(agent)
-                if self.assign_role(agent) == role and normalized in star_agents:
-                    star_bonus += 10
+        # comfort agent bonus (User feedback: replace stars with comfort)
+        comfort_bonus = min(comfort_count, 5) * 7.5
 
         # cap and normalize
-        raw = coverage_score + star_bonus - missing_penalty
+        raw = coverage_score + comfort_bonus - missing_penalty
         role_balance = max(0.0, min(raw, 100.0))
         return round(role_balance, 2)
 

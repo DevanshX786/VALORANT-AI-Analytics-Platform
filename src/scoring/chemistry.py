@@ -44,7 +44,7 @@ class ChemistryEngine:
         )
 
         for (match_name, team), group in roster_per_match.groupby(['Match Name', 'Team']):
-            players = group['Player'].tolist()
+            players = [p.lower() for p in group['Player'].tolist()]
             for pair in combinations(players, 2):
                 key = frozenset(pair)
                 self._pair_history[key] = self._pair_history.get(key, 0) + 1

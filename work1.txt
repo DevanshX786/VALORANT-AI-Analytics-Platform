@@ -1,7 +1,7 @@
 ================================================================================
 VALORANT AI ANALYTICS PLATFORM - MASTER WORK LOG
 ================================================================================
-Last Updated: 2026-03-29
+Last Updated: 2026-03-31
 Project:  ML platform that predicts VALORANT match outcomes using dynamic,
           roster-aware player scoring across 5 years of VCT data (2021-2025).
 
@@ -647,6 +647,20 @@ STEP 11: HYBRID AGENTIC AI & 2026 SEASON NEUTRALITY (Final Module 1 Architecture
     - Dynamic Threshold: ELITE_MECH_THRESHOLD = player_summary['mech_mean'].quantile(0.95).
     - Any player in the top 5% of the global database is automatically treated as a Superstar.
     - System is now fully autonomous and will adapt as new talent enters the league.
+
+44) MAP POOL & AGENT DOMAIN SYNC (The 'Corrode' Update)
+    - Added 'Corrode' to SUPPORTED_MAPS after confirming it as a 2026 map.
+    - Verified Agent/Player distinction: Veto (Agent) vs Vora (Player).
+    - Hardened Cryo/Cryocells distinction: No aliasing between different pro players.
+
+45) ADVANCED SIMULATION FIDELITY (The 'Clinch-Stop' Removal)
+    - Removed 'break' logic in series simulation. Map 3 (Bo3) and Map 5 (Bo5) are always simulated.
+    - WHY: Users need to see the full map-by-map analysis even if a team sweeps 2-0.
+
+46) PREDICTION BIAS REMOVAL (The 'Superteam' Decoupling)
+    - Removed hardcoded mechanical overrides that forced 95% chemistry for high-skill aimers.
+    - Reduced 'Skill Bias' weight from 30% to 15% to prioritize strategy and map synergy.
+    - WHY: Fixes "Reverse Predictions" where star teams were winning on paper but losing in real 2026 matches due to zero chemistry.
 
 ================================================================================
 ✅ MODULE 1: COMPLETED & PRODUCTION READY ✅
