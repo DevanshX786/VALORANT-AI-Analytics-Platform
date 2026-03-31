@@ -382,22 +382,7 @@
   }
   renderMapGrid();
 
-  // Load backend Teams
-  async function initTeams() {
-    try {
-      const res = await fetch('http://127.0.0.1:8000/rosters');
-      const data = await res.json();
-      const dl = document.getElementById('teamsList');
-      data.teams.forEach(t => {
-        const op = document.createElement('option');
-        op.value = t;
-        dl.appendChild(op);
-      });
-    } catch(err) {
-      console.warn("Make sure FastAPI is running on port 8000!");
-    }
-  }
-  initTeams();
+  // Handled by the Initial Roster Fetch above.
 
   // Send Prediction to Backend
   document.getElementById('predictBtn').addEventListener('click', async () => {
