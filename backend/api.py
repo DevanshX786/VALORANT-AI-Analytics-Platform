@@ -187,9 +187,17 @@ else:
         chem_engine_tmp = ChemistryEngine(clean_df[['Match Name', 'Team', 'Player', 'Year']].drop_duplicates())
         chem_history = chem_engine_tmp._pair_history
 
+        def get_agent_mode(s):
+            """Safely extract most common agent or return Unknown."""
+            try:
+                mode_result = s.mode()
+                return mode_result.iloc[0] if len(mode_result) > 0 else 'Unknown'
+            except:
+                return 'Unknown'
+        
         agent_lookup = (
             clean_df.groupby('Player')['Agents']
-            .agg(lambda s: s.mode().iloc[0] if not s.mode().empty else 'Unknown')
+            .agg(get_agent_mode)
             .to_dict()
         )
         ELITE_MECH_THRESHOLD = float(scored_df.groupby('Player')['Mechanical_Score'].mean().quantile(0.95))
@@ -247,8 +255,12 @@ def _load_tier1_rosters() -> pd.DataFrame:
     if not os.path.exists(TIER1_ROSTERS_PATH): return pd.DataFrame()
     try:
         return pd.read_csv(TIER1_ROSTERS_PATH, encoding='latin1', keep_default_na=False)
-    except:
-        return pd.read_csv(TIER1_ROSTERS_PATH, encoding='utf-8', errors='ignore', keep_default_na=False)
+    except (UnicodeDecodeError, LookupError):
+        try:
+            return pd.read_csv(TIER1_ROSTERS_PATH, encoding='utf-8', errors='ignore', keep_default_na=False)
+        except Exception as e:
+            print(f"[WARNING] Failed to load rosters CSV: {e}")
+            return pd.DataFrame()
 
 tier_rosters_df = _load_tier1_rosters()
 roster_lookup: Dict[str, str] = {}
@@ -266,10 +278,29 @@ player_summary_lower = {p.lower(): p for p in player_summary.keys()}
 
 
 def get_all_current_rosters() -> Dict[str, List[str]]:
-    if not tier_rosters_df.empty:
-        grouped = tier_rosters_df.groupby(tier_rosters_df['team_name'].astype(str).str.strip().str.title())['player_name']
-        return {team: [str(p).strip() for p in players if str(p).strip()] for team, players in grouped}
-    return {}
+    if tier_rosters_df.empty:
+        return {}
+
+    merged_rosters: Dict[str, Dict[str, List[str]]] = {}
+    for _, row in tier_rosters_df.iterrows():
+        raw_team = str(row.get('team_name', '')).strip()
+        clean_team = ' '.join(raw_team.split())
+        if not clean_team:
+            continue
+
+        team_key = clean_team.lower()
+        team_label = clean_team.title()
+        if team_key not in merged_rosters:
+            merged_rosters[team_key] = {'name': team_label, 'players': []}
+
+        player = str(row.get('player_name', '')).strip()
+        if player:
+            merged_rosters[team_key]['players'].append(player)
+
+    return {
+        team_data['name']: team_data['players']
+        for _, team_data in sorted(merged_rosters.items(), key=lambda kv: kv[1]['name'])
+    }
 
 
 def resolve_player_name(player_identifier: str) -> Optional[str]:

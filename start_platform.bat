@@ -1,28 +1,39 @@
 @echo off
+setlocal
 title VALORANT ML Platform Local Launcher
-color 0b
+color 0B
+
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
+
+set "PYTHON_EXE=%ROOT%venv\Scripts\python.exe"
+if not exist "%PYTHON_EXE%" (
+	set "PYTHON_EXE=python"
+)
 
 echo =======================================================
-echo    Booting up the VALORANT AI Analytics Platform...
+echo    Booting VALORANT AI Analytics Platform (LOCAL)...
 echo =======================================================
+echo Root: %ROOT%
+echo Python: %PYTHON_EXE%
 echo.
 
-echo [1/2] Spinning up the FastAPI Machine Learning Backend...
-echo (It will load heavy CSV data and cache the XGBoost models)
-start "Backend Fastapi Server" cmd /k "venv\Scripts\python -m uvicorn backend.api:app --reload  --port 8000"
+echo [1/2] Starting FastAPI backend on http://127.0.0.1:8010
+start "VALORANT Backend (Local)" cmd /k "cd /d "%ROOT%" && "%PYTHON_EXE%" -m uvicorn backend.api:app --host 127.0.0.1 --port 8010 --timeout-keep-alive 75"
 
-:: Wait 18 seconds for the ML architecture & Pandas logic to finish buffering in memory
-echo Waiting 18 seconds for Backend Model Compilation...
-timeout /t 18 /nobreak >nul
+echo Waiting for backend warm-up...
+timeout /t 8 /nobreak >nul
 
-echo [2/2] Booting the HTML UI Webserver (Port 8080)...
-start "Frontend Web Server" cmd /k "venv\Scripts\python -m http.server 8080 --directory frontend"
+echo [2/2] Starting frontend static server on http://127.0.0.1:8080
+start "VALORANT Frontend (Local)" cmd /k "cd /d "%ROOT%" && "%PYTHON_EXE%" -m http.server 8080 --bind 127.0.0.1 --directory frontend"
 
-:: Wait incredibly fast to let the Python server bind the 8080 local port natively
 timeout /t 2 /nobreak >nul
 
 echo.
 echo =======================================================
-echo All Systems Online! Launching your default Web Browser...
+echo Local stack online.
+echo Backend : http://127.0.0.1:8010
+echo Frontend: http://127.0.0.1:8080
 echo =======================================================
-start http://localhost:8080
+start "" http://127.0.0.1:8080
+endlocal

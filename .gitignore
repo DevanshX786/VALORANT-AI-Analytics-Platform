@@ -38,6 +38,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local utility launchers
+start_platform.bat
+stop_platform.bat
+
 # Secrets / env
 .env
 *.env

@@ -299,8 +299,11 @@
   // ------------------------------------------------------------------
   // ENVIRONMENT CONFIGURATION: Automatic Port/Host Detection
   // ------------------------------------------------------------------
-  const API_BASE = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' 
-    ? 'http://127.0.0.1:8000' 
+  const host = window.location.hostname || '';
+  const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  const isPrivateLan = /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+  const API_BASE = (isLoopback || isPrivateLan)
+    ? 'http://127.0.0.1:8010'
     : 'https://valorant-ai-analytics-platform.onrender.com';
   
   // Initial Roster Fetch
@@ -311,7 +314,17 @@
         const data = await res.json();
         const dl = document.getElementById('teamsList');
         dl.innerHTML = ''; // Clear fallback
-        (data.teams || []).forEach(team => {
+        const seen = new Set();
+        const uniqueTeams = (data.teams || []).filter(team => {
+          const normalized = String(team || '').trim().replace(/\s+/g, ' ').toLowerCase();
+          if (!normalized || seen.has(normalized)) {
+            return false;
+          }
+          seen.add(normalized);
+          return true;
+        }).sort((a, b) => String(a).localeCompare(String(b)));
+
+        uniqueTeams.forEach(team => {
           const opt = document.createElement('option');
           opt.value = team;
           dl.appendChild(opt);
